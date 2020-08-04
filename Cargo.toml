@@ -1,0 +1,13 @@
+[package]
+name = "yield-liquidator"
+version = "0.1.0"
+authors = ["Georgios Konstantopoulos <me@gakonst.com>"]
+edition = "2018"
+
+[dependencies]
+ethers = { git = "https://github.com/gakonst/ethers-rs" }
+gumdrop = "0.8.0"
+tracing = "0.1.18"
+
+[build-dependencies]
+ethers = { git = "https://github.com/gakonst/ethers-rs", features = ["abigen"] }
