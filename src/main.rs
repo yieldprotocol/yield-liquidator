@@ -23,8 +23,14 @@ async fn main() -> anyhow::Result<()> {
     let liquidations_address: Address = "00447Fe0075094C24fd5DFec3262b6e13eD2913D".parse()?;
     let liquidations = Liquidations::new(liquidations_address, client.clone());
 
+    let multicall = Multicall::new(
+        client.clone(),
+        Some("05Bc42F1fd5A92b896a529FDE14414Faf30da482".parse()?),
+    )
+    .await?;
+
     // instantiate the accounts watcher
-    let mut positions = Positions::new(controller);
+    let mut positions = Positions::new(controller, multicall);
 
     // setup the per-block watcher
     let mut on_block = client.watch_blocks().await?.stream();

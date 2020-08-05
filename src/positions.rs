@@ -27,8 +27,7 @@ pub struct Details {
     pub max_borrowing_power: U256,
 }
 
-#[derive(Clone, Debug)]
-// TODO: Add multicall for batched rpc requests
+#[derive(Clone)]
 pub struct Positions {
     /// The controller smart contract
     pub controller: Controller<Http, Wallet>,
@@ -37,15 +36,18 @@ pub struct Positions {
     pub borrowers: HashMap<Address, Details>,
     /// The last block we have observed
     pub last_block: U64,
+
+    multicall: Multicall<Http, Wallet>,
 }
 
 impl Positions {
     /// Constructor
-    pub fn new(controller: Controller<Http, Wallet>) -> Self {
+    pub fn new(controller: Controller<Http, Wallet>, multicall: Multicall<Http, Wallet>) -> Self {
         Positions {
             controller,
             borrowers: HashMap::new(),
             last_block: 0.into(),
+            multicall,
         }
     }
 
@@ -96,16 +98,28 @@ impl Positions {
     /// 3. posted
     /// 4. totalDebtDai
     pub async fn update_account_details(&self, user: Address) -> anyhow::Result<Details> {
-        let power = self.controller.power_of(WETH, user).call().await?;
-        let is_collateralized = self.controller.is_collateralized(WETH, user).call().await?;
-        let posted_collateral = self.controller.posted(WETH, user).call().await?;
-        let debt = self.controller.total_debt_dai(WETH, user).call().await?;
+        let power = self.controller.power_of(WETH, user);
+        let is_collateralized = self.controller.is_collateralized(WETH, user);
+        let posted_collateral = self.controller.posted(WETH, user);
+        let debt = self.controller.total_debt_dai(WETH, user);
+
+        // batch the calls together
+        let multicall = self
+            .multicall
+            .clone()
+            .clear_calls()
+            .add_call(is_collateralized)
+            .add_call(posted_collateral)
+            .add_call(debt)
+            .add_call(power);
+        let (is_collateralized, posted_collateral, debt, max_borrowing_power) =
+            multicall.call().await?;
 
         Ok(Details {
             is_collateralized,
             posted_collateral,
             debt,
-            max_borrowing_power: power,
+            max_borrowing_power,
         })
     }
 }

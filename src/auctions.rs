@@ -1,7 +1,7 @@
 //! Auctions Module
 //!
-//! This module is responsible for triggering and participating in a Vault's 
-//! dutch auction 
+//! This module is responsible for triggering and participating in a Vault's
+//! dutch auction
 use crate::{bindings::Liquidations, positions::Details};
 use ethers::prelude::*;
 
