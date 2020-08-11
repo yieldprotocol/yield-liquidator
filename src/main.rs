@@ -30,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
     .await?;
 
     // instantiate the accounts watcher
-    let mut positions = Positions::new(controller, multicall);
+    let mut positions = Positions::new(controller, multicall)?;
 
     // setup the per-block watcher
     let mut on_block = client.watch_blocks().await?.stream();

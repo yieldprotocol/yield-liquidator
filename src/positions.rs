@@ -5,9 +5,10 @@
 use crate::{bindings::Controller, WETH};
 
 use ethers::prelude::*;
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, fs::File, io::BufWriter};
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 /// A user's details
 pub struct Details {
     /// Is the position collateralized? Produced by calling `isCollateralized`
@@ -40,15 +41,31 @@ pub struct Positions {
     multicall: Multicall<Http, Wallet>,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+// Data that gets dumped to JSON
+struct Data {
+    borrowers: HashMap<Address, Details>,
+    last_block: U64,
+}
+
+const FNAME: &str = "data.json";
+
 impl Positions {
     /// Constructor
-    pub fn new(controller: Controller<Http, Wallet>, multicall: Multicall<Http, Wallet>) -> Self {
-        Positions {
+    pub fn new(
+        controller: Controller<Http, Wallet>,
+        multicall: Multicall<Http, Wallet>,
+    ) -> anyhow::Result<Self> {
+        // TODO: Improve I/O logic
+        let file = std::fs::read_to_string(FNAME)?;
+        let data: Data = serde_json::from_str(&file)?;
+        println!("Imported positions: {:#?}", data);
+        Ok(Positions {
             controller,
-            borrowers: HashMap::new(),
-            last_block: 0.into(),
+            borrowers: data.borrowers,
+            last_block: data.last_block,
             multicall,
-        }
+        })
     }
 
     /// Gets any new borrowers which may have joined the system since we last
@@ -88,6 +105,15 @@ impl Positions {
 
         // update last block
         self.last_block = current_block;
+
+        // TODO: Instead of re-serializing everything on top, just append the new
+        // borrowers and update the last block
+        let file = BufWriter::new(File::create(FNAME).unwrap());
+        let data = Data {
+            borrowers: self.borrowers.clone(),
+            last_block: self.last_block,
+        };
+        serde_json::to_writer(file, &data)?;
 
         Ok(())
     }

@@ -2010,6 +2010,7 @@ dependencies = [
  "anyhow",
  "ethers",
  "gumdrop",
+ "serde",
  "serde_json",
  "tokio",
  "tracing",
