@@ -10,6 +10,7 @@ fn main() {
     // bindgen("YDai");
     // bindgen("Vat");
     // bindgen("Liquidations");
+    // bindgen("UniswapV2Pair");
     // bindgen("Controller"); // TODO: Support I256 in ethers-rs
 }
 
