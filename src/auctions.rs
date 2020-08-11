@@ -40,7 +40,7 @@ impl Liquidations<Http, Wallet> {
                     "Found undercollateralized position: {:?} -> {:?}. Claiming fee.",
                     user, details
                 );
-                let tx_hash = self.liquidate(*user, client.address()).send().await?;
+                let tx_hash = self.liquidate(*user).send().await?;
 
                 // wait for it to be confirmed (TODO: Add number of confs here)
                 client.pending_transaction(tx_hash).confirmations(0).await?;
