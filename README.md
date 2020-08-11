@@ -36,3 +36,11 @@ for DAI on 1inch/uniswap.
 - `cargo run` to launch the liquidator
 - Create a vault that can be liquidated `npx truffle exec scripts/setup_liquidation.js`
 - Watch the liquidator see that the vault became undercollateralized!
+
+# Participating in an Auction
+
+This leverages Uniswap's Flash Swaps.
+
+1. borrow DAI from Uniswap (`swap(x, 0, liquidatorContractAddress, abi.encode(user address))`)
+2. Buy ETH at a discount from Yield Liquidation
+3. Send the required ETH to Uniswap s.t xy = k holds!

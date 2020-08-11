@@ -57,8 +57,8 @@ impl Positions {
         multicall: Multicall<Http, Wallet>,
     ) -> anyhow::Result<Self> {
         // TODO: Improve I/O logic
-        let file = std::fs::read_to_string(FNAME)?;
-        let data: Data = serde_json::from_str(&file)?;
+        let file = std::fs::read_to_string(FNAME).unwrap_or_default();
+        let data: Data = serde_json::from_str(&file).unwrap_or_default();
         println!("Imported positions: {:#?}", data);
         Ok(Positions {
             controller,

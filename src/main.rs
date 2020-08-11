@@ -1,5 +1,6 @@
 use yield_liquidator::{
-    bindings::{Controller, Liquidations},
+    auctions::Liquidator,
+    bindings::{Controller, Liquidations, UniswapV2Pair as Uniswap},
     positions::Positions,
 };
 
@@ -17,11 +18,19 @@ async fn main() -> anyhow::Result<()> {
         "5d50201676371a54c2cace1b26c114cded7c938ec296d9cbee697ab515bf1ff7".parse()?;
     let client = wallet.connect(provider).interval(INTERVAL);
 
-    let controller_address: Address = "595D20A216072a4634db3Ec51736b9B0402b1C86".parse()?;
-    let controller = Controller::new(controller_address, client.clone());
+    let controller: Address = "595D20A216072a4634db3Ec51736b9B0402b1C86".parse()?;
+    let controller = Controller::new(controller, client.clone());
 
-    let liquidations_address: Address = "00447Fe0075094C24fd5DFec3262b6e13eD2913D".parse()?;
-    let liquidations = Liquidations::new(liquidations_address, client.clone());
+    let liquidations: Address = "00447Fe0075094C24fd5DFec3262b6e13eD2913D".parse()?;
+    let liquidations = Liquidations::new(liquidations, client.clone());
+
+    let uniswap: Address = "22B831B023A67d2A7370d1d69Fb711e14C375458".parse()?;
+    let uniswap = Uniswap::new(uniswap, client.clone());
+
+    // TODO: Replace this with the actual address of the flashloaner
+    let flashloan: Address = "22B831B023A67d2A7370d1d69Fb711e14C375458".parse()?;
+
+    let liquidator = Liquidator::new(liquidations, uniswap, flashloan);
 
     let multicall = Multicall::new(
         client.clone(),
@@ -41,12 +50,12 @@ async fn main() -> anyhow::Result<()> {
         positions.update_positions().await?;
 
         // 2. trigger the auction for any undercollateralized positions
-        liquidations
-            .trigger_liquidations(positions.borrowers.iter())
-            .await?;
+        // liquidations
+        //     .trigger_liquidations(positions.borrowers.iter())
+        //     .await?;
 
         // 3. try buying the ones which are worth buying
-        // liquidations.buy_opportunities().await?;
+        liquidator.buy_opportunities().await?;
     }
 
     Ok(())
