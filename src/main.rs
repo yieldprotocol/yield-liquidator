@@ -5,10 +5,7 @@ use yield_liquidator::{
 };
 
 use tracing::debug_span;
-use tracing_subscriber::{
-    filter::EnvFilter,
-    fmt::{time::ChronoUtc, Subscriber},
-};
+use tracing_subscriber::{filter::EnvFilter, fmt::Subscriber};
 
 use ethers::prelude::*;
 use gumdrop::Options;

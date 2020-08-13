@@ -5,10 +5,6 @@ fn main() {
     // Only re-run the builder script if the contract changes
     println!("cargo:rerun-if-changed=./abi/*.json");
 
-    // bindgen("Treasury");
-    // bindgen("WETH");
-    // bindgen("YDai");
-    // bindgen("Vat");
     // bindgen("Liquidations");
     // bindgen("UniswapV2Pair");
     // bindgen("Controller"); // TODO: Support I256 in ethers-rs

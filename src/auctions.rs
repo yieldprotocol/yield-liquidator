@@ -54,8 +54,7 @@ impl Liquidator {
             let vault = self.liquidations.vaults(user).call().await?;
             let debt = U256::from(vault.1);
             let timestamp = opportunity.started;
-            let span =
-                debug_span!("buying", user = ?user, auction_start = %timestamp, auction_end = %(timestamp + 3600), debt = %debt);
+            let span = debug_span!("buying", user = ?user, auction_start = %timestamp, auction_end = %(timestamp + 3600), debt = %debt);
             let _enter = span.enter();
             // enter span for {user, started}
             let vault = self.liquidations.vaults(user).call().await?;
