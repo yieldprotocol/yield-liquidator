@@ -8,6 +8,10 @@ use ethers::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs::File, io::BufWriter};
 
+use tracing::{debug, debug_span};
+
+const FNAME: &str = "data.json";
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 /// A user's details
 pub struct Details {
@@ -32,13 +36,15 @@ pub struct Details {
 pub struct Positions {
     /// The controller smart contract
     pub controller: Controller<Http, Wallet>,
+
+    pub multicall: Multicall<Http, Wallet>,
+
     /// Mapping of the addresses that have taken loans from the system and might
     /// be susceptible to liquidations
     pub borrowers: HashMap<Address, Details>,
+
     /// The last block we have observed
     pub last_block: U64,
-
-    multicall: Multicall<Http, Wallet>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -47,8 +53,6 @@ struct Data {
     borrowers: HashMap<Address, Details>,
     last_block: U64,
 }
-
-const FNAME: &str = "data.json";
 
 impl Positions {
     /// Constructor
@@ -59,7 +63,6 @@ impl Positions {
         // TODO: Improve I/O logic
         let file = std::fs::read_to_string(FNAME).unwrap_or_default();
         let data: Data = serde_json::from_str(&file).unwrap_or_default();
-        println!("Imported positions: {:#?}", data);
         Ok(Positions {
             controller,
             borrowers: data.borrowers,
@@ -71,11 +74,12 @@ impl Positions {
     /// Gets any new borrowers which may have joined the system since we last
     /// made this call and then proceeds to get the latest account details for
     /// each user
-    pub async fn update_positions(&mut self) -> anyhow::Result<()> {
-        // get latest block
-        let current_block = self.controller.client().get_block_number().await?;
+    pub async fn update_positions(&mut self, current_block: U64) -> anyhow::Result<()> {
+        let span = debug_span!("monitoring");
+        let _enter = span.enter();
 
         // get the new users
+        // TODO: Improve this logic to be more optimized
         let new_users = self
             .controller
             .borrowed_filter()
@@ -87,11 +91,9 @@ impl Positions {
             .map(|log| log.user)
             .collect::<Vec<_>>();
 
-        // combine them with the old users
+        // combine them with the old users and remove any duplicates
         let old_users = self.borrowers.keys().cloned().collect::<Vec<_>>();
         let mut all_users = [new_users, old_users].concat();
-
-        // remove any duplicates
         all_users.sort_unstable();
         all_users.dedup();
 
@@ -99,7 +101,7 @@ impl Positions {
         for user in all_users {
             let details = self.update_account_details(user).await?;
             if self.borrowers.insert(user, details.clone()).is_none() {
-                println!("New borrower detected: {:?} -> {:?}", user, details);
+                debug!(new_borrower = ?user, collateral_eth = %details.posted_collateral, debt_dai = %details.debt);
             }
         }
 

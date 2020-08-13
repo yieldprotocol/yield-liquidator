@@ -44,3 +44,13 @@ This leverages Uniswap's Flash Swaps.
 1. borrow DAI from Uniswap (`swap(x, 0, liquidatorContractAddress, abi.encode(user address))`)
 2. Buy ETH at a discount from Yield Liquidation
 3. Send the required ETH to Uniswap s.t xy = k holds!
+
+# Demo
+
+1. Deploy contracts
+2. Deploy a Uniswap, mint a 50 ETH CDP @ 150 spot and draw 7500 DAI
+3. As a user, put up 1 ETH collateral @ 150 spot, draw 150 yDAI
+4. Now price moves against us
+5. It gets detected by the liquidator -> triggers it
+6. The liquidation gets detected -> tries to buy it with a flash loan -> returns that it's too expensive
+7. Advance some time -> gets bought
