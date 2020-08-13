@@ -9,7 +9,7 @@ use crate::{
 use ethers::core::abi::{self, Tokenize};
 use ethers::prelude::*;
 
-use tracing::{debug, debug_span, error, info};
+use tracing::{debug, debug_span, error, info, trace};
 
 pub struct Liquidator {
     liquidations: Liquidations<Http, Wallet>,
@@ -44,54 +44,48 @@ impl Liquidator {
             .query()
             .await?;
 
-        // TODO: If auction start time > current time and we still cannot buy it,
-        // then it means we cannot ever buy it
-
         let client = self.uniswap.client();
-
-        // get the current gas price
-        let gas_price = client.get_gas_price().await?;
-
         let balance_before = client.get_balance(client.address(), None).await?;
 
+        // TODO: Make the smart contract take an array of (users, balances) ->
+        // flash loan everything -> make multiple `buy` calls
         for opportunity in liquidations {
-            let debt = opportunity.debt;
             let user = opportunity.user;
+            let vault = self.liquidations.vaults(user).call().await?;
+            let debt = U256::from(vault.1);
             let timestamp = opportunity.started;
-            let span = debug_span!("buying", user = ?user, auction_start = %timestamp);
+            let span =
+                debug_span!("buying", user = ?user, auction_start = %timestamp, auction_end = %(timestamp + 3600), debt = %debt);
             let _enter = span.enter();
             // enter span for {user, started}
             let vault = self.liquidations.vaults(user).call().await?;
+            // Skip vaults which do not have any outstanding debt
             if vault.1 == 0 {
-                // trace!("0 debt, skipping");
+                trace!("Skipping 0 debt vault");
                 continue;
             }
 
-            // Borrows DAI from Uniswap and sends it to the `flashloan` address.
-            // It is expected that the flashloan address is a contract which
-            // calls the Liquidation contract's `buy` function by sending the DAI
-            // and getting the ETH at a discount.
-            // e.g. if you borrowed 100 DAI from Uniswap, when the price is $200
-            // per ETH, Uniswap would expect that you'd return it 0.5 ETH at the end
-            // of the call. The 100 DAI would get sent to the Yield contract in return
-            // for, say, 0.52 ETH. The 0.5 ETH would then get sent back to Uniswap
-            // and the 0.02 ETH would get pocketed as profit. Careful with gas costs!
-            // This call should _not_ be made if gas costs would reduce profit to <0.
-            let args = abi::encode(&(user, 0).into_tokens());
-            let try_estimate_gas = self
+            // TODO: Should this be done via gas estimation? A minimum 0.1 ETH
+            // profit seems good enough.
+            let min_profit_eth = U256::from(1e17 as u64);
+            let args = abi::encode(&(user, min_profit_eth).into_tokens());
+
+            // Calls Uniswap's `swap` function which will optimistically let us
+            // borrow the debt, which will then make a callback to the flashloan
+            // contract which will execute the liquidation
+            let tx_hash = match self
                 .uniswap
                 .swap(debt, 0.into(), self.flashloan, args)
-                .estimate_gas()
-                .await;
-
-            let estimated_gas = match try_estimate_gas {
-                Ok(gas) => gas,
+                .block(BlockNumber::Pending)
+                .send()
+                .await
+            {
+                Ok(hash) => hash,
                 Err(err) => {
                     let price = self.liquidations.price(user).call().await?;
-                    let required = debt / price;
                     let err = err.to_string();
                     if err.contains("NOT_ENOUGH_PROFIT") {
-                        debug!(debt = %debt, required = %required, price = %price, "Auction not yet profitable. Please wait for the price to drop.");
+                        debug!(price = %price, "Auction not yet profitable. Please wait for the price to drop.");
                     } else if err.contains("Below dust") {
                         debug!("Proceeds are below the dust. Please wait for the price to drop.");
                     } else {
@@ -102,16 +96,6 @@ impl Liquidator {
                 }
             };
 
-            // min profit should be more than 2x eth paid for gas
-            let min_profit_eth = estimated_gas * gas_price * U256::from(2);
-            // debug!("minimum profit: {}", min_profit_eth);
-            let args = abi::encode(&(user, min_profit_eth).into_tokens());
-            let tx_hash = self
-                .uniswap
-                .swap(debt, 0.into(), self.flashloan, args)
-                .block(BlockNumber::Pending)
-                .send()
-                .await?;
             // Wait for the tx to be confirmed...
             let receipt = client.pending_transaction(tx_hash).await?;
             debug!("bought. gas used {}", receipt.gas_used.unwrap());

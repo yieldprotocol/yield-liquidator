@@ -62,7 +62,6 @@ struct Opts {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     Subscriber::builder()
-        .with_timer(ChronoUtc::rfc3339())
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 

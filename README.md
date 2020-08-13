@@ -54,3 +54,5 @@ This leverages Uniswap's Flash Swaps.
 5. It gets detected by the liquidator -> triggers it
 6. The liquidation gets detected -> tries to buy it with a flash loan -> returns that it's too expensive
 7. Advance some time -> gets bought
+
+NB: Each time a flashloan is done, we're borrowing DAI from Uniswap and returning ETH, so we're pushing DAI's price up. If you want to run more examples, do `dai.mint(pair.address, xxx)` followed by `pair.sync()` to update the reserves & price.
