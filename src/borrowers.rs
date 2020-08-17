@@ -1,20 +1,32 @@
-//! Positions / Users
+//! Borrowers / Users
 //!
 //! This module is responsible for keeping track of the users that have open
 //! positions and observing their debt healthiness.
 use crate::{bindings::Controller, WETH};
 
+use anyhow::Result;
 use ethers::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs::File, io::BufWriter};
-
+use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, debug_span};
 
-const FNAME: &str = "data.json";
+#[derive(Clone)]
+pub struct Borrowers<'a> {
+    /// The controller smart contract
+    pub controller: Controller<Http, Wallet>,
+
+    /// Mapping of the addresses that have taken loans from the system and might
+    /// be susceptible to liquidations
+    pub borrowers: HashMap<Address, Borrower>,
+
+    /// We use multicall to batch together calls and have reduced stress on
+    /// our RPC endpoint
+    multicall: &'a Multicall<Http, Wallet>,
+}
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 /// A user's details
-pub struct Details {
+pub struct Borrower {
     /// Is the position collateralized? Produced by calling `isCollateralized`
     /// on the controller
     pub is_collateralized: bool,
@@ -32,49 +44,25 @@ pub struct Details {
     pub max_borrowing_power: U256,
 }
 
-#[derive(Clone)]
-pub struct Positions {
-    /// The controller smart contract
-    pub controller: Controller<Http, Wallet>,
-
-    pub multicall: Multicall<Http, Wallet>,
-
-    /// Mapping of the addresses that have taken loans from the system and might
-    /// be susceptible to liquidations
-    pub borrowers: HashMap<Address, Details>,
-
-    /// The last block we have observed
-    pub last_block: U64,
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-// Data that gets dumped to JSON
-struct Data {
-    borrowers: HashMap<Address, Details>,
-    last_block: U64,
-}
-
-impl Positions {
+impl<'a> Borrowers<'a> {
     /// Constructor
     pub fn new(
-        controller: Controller<Http, Wallet>,
-        multicall: Multicall<Http, Wallet>,
-    ) -> anyhow::Result<Self> {
-        // TODO: Improve I/O logic
-        let file = std::fs::read_to_string(FNAME).unwrap_or_default();
-        let data: Data = serde_json::from_str(&file).unwrap_or_default();
-        Ok(Positions {
-            controller,
-            borrowers: data.borrowers,
-            last_block: data.last_block,
+        controller: Address,
+        client: Arc<Client<Http, Wallet>>,
+        multicall: &'a Multicall<Http, Wallet>,
+        borrowers: HashMap<Address, Borrower>,
+    ) -> Self {
+        Borrowers {
+            controller: Controller::new(controller, client),
+            borrowers,
             multicall,
-        })
+        }
     }
 
     /// Gets any new borrowers which may have joined the system since we last
     /// made this call and then proceeds to get the latest account details for
     /// each user
-    pub async fn update_positions(&mut self, current_block: U64) -> anyhow::Result<()> {
+    pub async fn update_borrowers(&mut self, from_block: U64, to_block: U64) -> Result<()> {
         let span = debug_span!("monitoring");
         let _enter = span.enter();
 
@@ -83,39 +71,23 @@ impl Positions {
         let new_users = self
             .controller
             .borrowed_filter()
-            .from_block(self.last_block)
-            .to_block(current_block)
+            .from_block(from_block)
+            .to_block(to_block)
             .query()
             .await?
             .into_iter()
             .map(|log| log.user)
             .collect::<Vec<_>>();
 
-        // combine them with the old users and remove any duplicates
-        let old_users = self.borrowers.keys().cloned().collect::<Vec<_>>();
-        let mut all_users = [new_users, old_users].concat();
-        all_users.sort_unstable();
-        all_users.dedup();
+        let all_users = crate::merge(new_users, &self.borrowers);
 
         // update all the accounts' details
         for user in all_users {
-            let details = self.update_account_details(user).await?;
+            let details = self.get_borrower(user).await?;
             if self.borrowers.insert(user, details.clone()).is_none() {
                 debug!(new_borrower = ?user, collateral_eth = %details.posted_collateral, debt_dai = %details.debt);
             }
         }
-
-        // update last block
-        self.last_block = current_block;
-
-        // TODO: Instead of re-serializing everything on top, just append the new
-        // borrowers and update the last block
-        let file = BufWriter::new(File::create(FNAME).unwrap());
-        let data = Data {
-            borrowers: self.borrowers.clone(),
-            last_block: self.last_block,
-        };
-        serde_json::to_writer(file, &data)?;
 
         Ok(())
     }
@@ -125,7 +97,7 @@ impl Positions {
     /// 2. isCollateralized
     /// 3. posted
     /// 4. totalDebtDai
-    pub async fn update_account_details(&self, user: Address) -> anyhow::Result<Details> {
+    pub async fn get_borrower(&self, user: Address) -> Result<Borrower> {
         let power = self.controller.power_of(WETH, user);
         let is_collateralized = self.controller.is_collateralized(WETH, user);
         let posted_collateral = self.controller.posted(WETH, user);
@@ -143,7 +115,7 @@ impl Positions {
         let (is_collateralized, posted_collateral, debt, max_borrowing_power) =
             multicall.call().await?;
 
-        Ok(Details {
+        Ok(Borrower {
             is_collateralized,
             posted_collateral,
             debt,
