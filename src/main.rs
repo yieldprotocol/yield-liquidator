@@ -4,6 +4,7 @@ use yield_liquidator::keeper::Keeper;
 use gumdrop::Options;
 use std::{convert::TryFrom, path::PathBuf, sync::Arc, time::Duration};
 use tracing_subscriber::{filter::EnvFilter, fmt::Subscriber};
+use tracing::info;
 
 // CLI Options
 #[derive(Debug, Options, Clone)]
@@ -61,12 +62,20 @@ async fn main() -> anyhow::Result<()> {
 
     let opts = Opts::parse_args_default_or_exit();
 
-    let provider = Provider::<Http>::try_from(opts.url)?;
+    let provider = Provider::<Http>::try_from(opts.url.clone())?;
     let wallet: Wallet = opts.private_key.parse()?;
     let client = wallet
         .connect(provider)
         .interval(Duration::from_millis(opts.interval));
     let client = Arc::new(client);
+    info!("Starting Yield Liquidator.");
+    info!("Node: {}", opts.url);
+    info!("Profits will be sent to {:?}", client.address());
+    info!("Controller: {:?}", opts.controller);
+    info!("Liquidations: {:?}", opts.liquidations);
+    info!("Uniswap: {:?}", opts.uniswap);
+    info!("FlashLiquidator {:?}", opts.flashloan);
+    info!("Persistent data will be stored at: {:?}", opts.file);
 
     let multicall = Multicall::new(
         client.clone(),
