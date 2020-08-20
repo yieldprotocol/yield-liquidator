@@ -2,7 +2,7 @@ use ethers::prelude::*;
 use yield_liquidator::keeper::Keeper;
 
 use gumdrop::Options;
-use std::{convert::TryFrom, path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 use tracing::info;
 use tracing_subscriber::{filter::EnvFilter, fmt::Subscriber};
 

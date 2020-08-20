@@ -89,17 +89,20 @@ impl<P: JsonRpcClient> Keeper<P> {
 
     /// Runs the liquidation business logic for the specified block
     async fn on_block(&mut self, block_number: U64) -> Result<()> {
-        // 1. update our dataset with the new block's data
+        // 1. Check if our transactions have been mined
+        self.liquidator.remove_confirmed().await?;
+
+        // 2. update our dataset with the new block's data
         self.borrowers
             .update_borrowers(self.last_block, block_number)
             .await?;
 
-        // 2. trigger the auction for any undercollateralized borrowers
+        // 3. trigger the auction for any undercollateralized borrowers
         self.liquidator
             .trigger_liquidations(self.borrowers.borrowers.iter())
             .await?;
 
-        // 3. try buying the ones which are worth buying
+        // 4. try buying the ones which are worth buying
         self.liquidator
             .buy_opportunities(self.last_block, block_number)
             .await?;

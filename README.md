@@ -56,3 +56,9 @@ This leverages Uniswap's Flash Swaps.
 7. Advance some time -> gets bought
 
 NB: Each time a flashloan is done, we're borrowing DAI from Uniswap and returning ETH, so we're pushing DAI's price up. If you want to run more examples, do `dai.mint(pair.address, xxx)` followed by `pair.sync()` to update the reserves & price.
+
+# Bugs
+
+1. receipt & unknown decoding from RPC
+2. too low nonce when used from the outside
+3. how to find uniswap situation. should price go up or down? how do we know? replace error with proper warning

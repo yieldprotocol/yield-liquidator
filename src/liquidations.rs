@@ -14,10 +14,7 @@ use ethers::{
     prelude::*,
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, debug_span, error, info, trace};
 
 #[derive(Clone)]
@@ -32,6 +29,9 @@ pub struct Liquidator<P> {
     /// We use multicall to batch together calls and have reduced stress on
     /// our RPC endpoint
     multicall: Multicall<P, Wallet>,
+
+    pending_liquidations: HashMap<Address, TxHash>,
+    pending_auctions: HashMap<Address, TxHash>,
 }
 
 /// An initiated auction
@@ -64,7 +64,33 @@ impl<P: JsonRpcClient> Liquidator<P> {
             flashloan,
             multicall,
             auctions,
+
+            pending_liquidations: HashMap::new(),
+            pending_auctions: HashMap::new(),
         }
+    }
+
+    /// Checks if any transactions which have been submitted are mined, and removes
+    /// them if they were successful.
+    pub async fn remove_confirmed(&mut self) -> Result<()> {
+        let client = self.liquidations.client();
+        for (addr, tx_hash) in self.pending_auctions.clone().into_iter() {
+            let receipt = client.get_transaction_receipt(tx_hash).await?;
+            if receipt.status == Some(1.into()) {
+                trace!(tx_hash = ?tx_hash, user = ?addr, "bid confirmed");
+                self.pending_auctions.remove(&addr);
+            }
+        }
+
+        for (addr, tx_hash) in self.pending_liquidations.clone().into_iter() {
+            let receipt = client.get_transaction_receipt(tx_hash).await?;
+            if receipt.status == Some(1.into()) {
+                trace!(tx_hash = ?tx_hash, user = ?addr, "liquidation confirmed");
+                self.pending_liquidations.remove(&addr);
+            }
+        }
+
+        Ok(())
     }
 
     /// Sends a bid for any of the liquidation auctions.
@@ -101,6 +127,12 @@ impl<P: JsonRpcClient> Liquidator<P> {
     /// Tries to buy the collateral associated with a user's liquidation auction
     /// via a flashloan funded by Uniswap's DAI/WETH pair.
     async fn buy(&mut self, user: Address) -> Result<()> {
+        // only iterate over users that do not have active auctions
+        if let Some(tx_hash) = self.pending_auctions.get(&user) {
+            trace!(tx_hash = ?tx_hash, user = ?user, "bid not confirmed yet");
+            return Ok(());
+        }
+
         let vault = self.get_vault(user).await?;
         let timestamp = vault.started;
         let debt = vault.debt;
@@ -113,7 +145,7 @@ impl<P: JsonRpcClient> Liquidator<P> {
 
         // Skip auctions which do not have any outstanding debt
         if vault.debt == 0 {
-            trace!("Skipping 0 debt vault");
+            // trace!("Vault liquidated");
             return Ok(());
         }
 
@@ -132,7 +164,12 @@ impl<P: JsonRpcClient> Liquidator<P> {
             .send()
             .await
         {
-            Ok(hash) => hash,
+            Ok(hash) => {
+                // record the tx
+                trace!(tx_hash = ?hash, "Submitted buy order");
+                self.pending_auctions.entry(user).or_insert(hash);
+                hash
+            }
             Err(err) => {
                 let err = err.to_string();
                 if err.contains("NOT_ENOUGH_PROFIT") {
@@ -161,11 +198,15 @@ impl<P: JsonRpcClient> Liquidator<P> {
         &mut self,
         borrowers: impl Iterator<Item = (&Address, &Borrower)>,
     ) -> Result<()> {
-        let client = self.liquidations.client();
-
         debug!("checking for undercollateralized positions...");
 
         for (user, details) in borrowers {
+            // only iterate over users that do not have pending liquidations
+            if let Some(tx_hash) = self.pending_liquidations.get(&user) {
+                trace!(tx_hash = ?tx_hash, user = ?user, "liquidation not confirmed yet");
+                continue
+            }
+
             if !details.is_collateralized {
                 info!(
                     user = ?user,
@@ -173,9 +214,11 @@ impl<P: JsonRpcClient> Liquidator<P> {
                     max_debt_dai = %details.max_borrowing_power,
                     "found undercollateralized user. triggering liquidation",
                 );
+
+                // Send the tx and track it
                 let tx_hash = self.liquidations.liquidate(*user).send().await?;
-                // wait for it to be confirmed (TODO: Add number of confs here)
-                client.pending_transaction(tx_hash).confirmations(0).await?;
+                trace!(tx_hash = ?tx_hash, user = ?user, "Submitted liquidation");
+                self.pending_liquidations.entry(*user).or_insert(tx_hash);
             }
         }
 

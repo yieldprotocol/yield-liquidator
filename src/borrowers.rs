@@ -99,7 +99,7 @@ impl<P: JsonRpcClient> Borrowers<P> {
     /// 2. isCollateralized
     /// 3. posted
     /// 4. totalDebtDai
-    pub async fn get_borrower(&self, user: Address) -> Result<Borrower> {
+    pub async fn get_borrower(&mut self, user: Address) -> Result<Borrower> {
         let power = self.controller.power_of(WETH, user);
         let is_collateralized = self.controller.is_collateralized(WETH, user);
         let posted_collateral = self.controller.posted(WETH, user);
