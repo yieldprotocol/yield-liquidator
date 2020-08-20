@@ -14,13 +14,16 @@ use ethers::{
     prelude::*,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use tracing::{debug, debug_span, error, info, trace};
 
 #[derive(Clone)]
-pub struct Liquidator<'a> {
-    liquidations: Liquidations<Http, Wallet>,
-    uniswap: Uniswap<Http, Wallet>,
+pub struct Liquidator<P> {
+    liquidations: Liquidations<P, Wallet>,
+    uniswap: Uniswap<P, Wallet>,
     flashloan: Address,
 
     /// The currently active auctions
@@ -28,7 +31,7 @@ pub struct Liquidator<'a> {
 
     /// We use multicall to batch together calls and have reduced stress on
     /// our RPC endpoint
-    multicall: &'a Multicall<Http, Wallet>,
+    multicall: Multicall<P, Wallet>,
 }
 
 /// An initiated auction
@@ -42,16 +45,19 @@ pub struct Auction {
     collateral: u128,
 }
 
-impl<'a> Liquidator<'a> {
+impl<P: JsonRpcClient> Liquidator<P> {
     /// Constructor
-    pub fn new(
+    pub async fn new(
         liquidations: Address,
         uniswap: Address,
         flashloan: Address,
-        client: Arc<Client<Http, Wallet>>,
-        multicall: &'a Multicall<Http, Wallet>,
+        client: Arc<Client<P, Wallet>>,
         auctions: HashMap<Address, Auction>,
     ) -> Self {
+        let multicall = Multicall::new(client.clone(), None)
+            .await
+            .expect("could not initialize multicall");
+
         Self {
             liquidations: Liquidations::new(liquidations, client.clone()),
             uniswap: Uniswap::new(uniswap, client.clone()),
@@ -81,10 +87,13 @@ impl<'a> Liquidator<'a> {
             self.buy(user).await?;
         }
         let balance_after = self.uniswap.client().get_balance(address, None).await?;
-        info!(
-            "done buying. profit: {} WEI",
-            (balance_after - balance_before)
-        );
+
+        if balance_after > balance_before {
+            info!(
+                "done buying. profit: {} WEI",
+                (balance_after - balance_before)
+            );
+        }
 
         Ok(())
     }
@@ -149,7 +158,7 @@ impl<'a> Liquidator<'a> {
     /// Triggers liquidations for any vulnerable positions which were fetched from the
     /// controller
     pub async fn trigger_liquidations(
-        &self,
+        &mut self,
         borrowers: impl Iterator<Item = (&Address, &Borrower)>,
     ) -> Result<()> {
         let client = self.liquidations.client();
@@ -173,14 +182,12 @@ impl<'a> Liquidator<'a> {
         Ok(())
     }
 
-    async fn get_vault(&self, user: Address) -> Result<Auction> {
+    async fn get_vault(&mut self, user: Address) -> Result<Auction> {
         let vault = self.liquidations.vaults(user);
         let timestamp = self.liquidations.liquidations(user);
 
-        // batch the calls together
         let multicall = self
             .multicall
-            .clone()
             .clear_calls()
             .add_call(vault)
             .add_call(timestamp);

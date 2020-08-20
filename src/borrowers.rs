@@ -11,9 +11,9 @@ use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, debug_span};
 
 #[derive(Clone)]
-pub struct Borrowers<'a> {
+pub struct Borrowers<P> {
     /// The controller smart contract
-    pub controller: Controller<Http, Wallet>,
+    pub controller: Controller<P, Wallet>,
 
     /// Mapping of the addresses that have taken loans from the system and might
     /// be susceptible to liquidations
@@ -21,7 +21,7 @@ pub struct Borrowers<'a> {
 
     /// We use multicall to batch together calls and have reduced stress on
     /// our RPC endpoint
-    multicall: &'a Multicall<Http, Wallet>,
+    multicall: Multicall<P, Wallet>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -44,14 +44,16 @@ pub struct Borrower {
     pub max_borrowing_power: U256,
 }
 
-impl<'a> Borrowers<'a> {
+impl<P: JsonRpcClient> Borrowers<P> {
     /// Constructor
-    pub fn new(
+    pub async fn new(
         controller: Address,
-        client: Arc<Client<Http, Wallet>>,
-        multicall: &'a Multicall<Http, Wallet>,
+        client: Arc<Client<P, Wallet>>,
         borrowers: HashMap<Address, Borrower>,
     ) -> Self {
+        let multicall = Multicall::new(client.clone(), None)
+            .await
+            .expect("could not initialize multicall");
         Borrowers {
             controller: Controller::new(controller, client),
             borrowers,
@@ -106,7 +108,6 @@ impl<'a> Borrowers<'a> {
         // batch the calls together
         let multicall = self
             .multicall
-            .clone()
             .clear_calls()
             .add_call(is_collateralized)
             .add_call(posted_collateral)

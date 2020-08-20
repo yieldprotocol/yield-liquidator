@@ -22,40 +22,33 @@ pub struct State {
 
 /// The keeper monitors the chain for both liquidation opportunities and for
 /// participation in auctions using Uniswap as a liquidity source
-pub struct Keeper<'a> {
-    client: Arc<Client<Http, Wallet>>,
+pub struct Keeper<P> {
+    client: Arc<Client<P, Wallet>>,
     last_block: U64,
 
-    borrowers: Borrowers<'a>,
-    liquidator: Liquidator<'a>,
+    borrowers: Borrowers<P>,
+    liquidator: Liquidator<P>,
 }
 
-impl<'a> Keeper<'a> {
+impl<P: JsonRpcClient> Keeper<P> {
     /// Instantiates the keeper. `state` should be passed if there is previous
     /// data which should be taken into account from a previous run
     pub async fn new(
-        client: Arc<Client<Http, Wallet>>,
-        multicall: &'a Multicall<Http, Wallet>,
+        client: Arc<Client<P, Wallet>>,
         controller: Address,
         liquidations: Address,
         uniswap: Address,
         flashloan: Address,
         state: Option<State>,
-    ) -> Result<Keeper<'a>> {
+    ) -> Result<Keeper<P>> {
         let (borrowers, vaults, last_block) = match state {
             Some(state) => (state.borrowers, state.vaults, state.last_block),
             None => (HashMap::new(), HashMap::new(), 0.into()),
         };
 
-        let borrowers = Borrowers::new(controller, client.clone(), multicall, borrowers);
-        let liquidator = Liquidator::new(
-            liquidations,
-            uniswap,
-            flashloan,
-            client.clone(),
-            multicall,
-            vaults,
-        );
+        let borrowers = Borrowers::new(controller, client.clone(), borrowers).await;
+        let liquidator =
+            Liquidator::new(liquidations, uniswap, flashloan, client.clone(), vaults).await;
 
         Ok(Self {
             client,

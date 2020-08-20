@@ -3,8 +3,8 @@ use yield_liquidator::keeper::Keeper;
 
 use gumdrop::Options;
 use std::{convert::TryFrom, path::PathBuf, sync::Arc, time::Duration};
-use tracing_subscriber::{filter::EnvFilter, fmt::Subscriber};
 use tracing::info;
+use tracing_subscriber::{filter::EnvFilter, fmt::Subscriber};
 
 // CLI Options
 #[derive(Debug, Options, Clone)]
@@ -62,7 +62,9 @@ async fn main() -> anyhow::Result<()> {
 
     let opts = Opts::parse_args_default_or_exit();
 
-    let provider = Provider::<Http>::try_from(opts.url.clone())?;
+    let ws = Ws::connect(opts.url.clone()).await?;
+    let provider = Provider::new(ws);
+    // let provider = Provider::<Http>::try_from(opts.url.clone())?;
     let wallet: Wallet = opts.private_key.parse()?;
     let client = wallet
         .connect(provider)
@@ -77,13 +79,6 @@ async fn main() -> anyhow::Result<()> {
     info!("FlashLiquidator {:?}", opts.flashloan);
     info!("Persistent data will be stored at: {:?}", opts.file);
 
-    let multicall = Multicall::new(
-        client.clone(),
-        // TODO: Remove this
-        Some("05Bc42F1fd5A92b896a529FDE14414Faf30da482".parse()?),
-    )
-    .await?;
-
     let file = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -94,7 +89,6 @@ async fn main() -> anyhow::Result<()> {
 
     let mut keeper = Keeper::new(
         client,
-        &multicall,
         opts.controller,
         opts.liquidations,
         opts.uniswap,
