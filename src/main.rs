@@ -48,7 +48,7 @@ struct Opts {
 
     #[options(
         help = "your private key",
-        default = "5d50201676371a54c2cace1b26c114cded7c938ec296d9cbee697ab515bf1ff7"
+        default = "8b6e036da61e5ac4874a770d7258583cd1b373798e740deaff4015fea80294b0"
     )]
     private_key: String,
 
