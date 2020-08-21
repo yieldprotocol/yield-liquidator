@@ -13,25 +13,25 @@ struct Opts {
 
     #[options(
         help = "the Yield controller's address",
-        default = "595D20A216072a4634db3Ec51736b9B0402b1C86"
+        default = "Cf699af73C25aC785E8Da72F4fA7872c86D43C15"
     )]
     controller: Address,
 
     #[options(
         help = "the Yield liquidation's address",
-        default = "00447Fe0075094C24fd5DFec3262b6e13eD2913D"
+        default = "b85F3d294edD2B76128cf918800BB21081f59223"
     )]
     liquidations: Address,
 
     #[options(
         help = "the DAI/WETH Uniswap V2 pair",
-        default = "e831dcd2aCb881Ca4d75c08772551FCCdED3FAd6"
+        default = "6025b901C88e5739Cb4112fcf3F27E0264c5BdDe"
     )]
     uniswap: Address,
 
     #[options(
         help = "the address of your flashloan contract",
-        default = "2591D67697C7d9d80bE69081cB746Ce1cDC1387b"
+        default = "FE35d86cb5b6c0273fAC070Cc40aFeA77574cEF0"
     )]
     flashloan: Address,
 
@@ -58,7 +58,7 @@ struct Opts {
     #[options(help = "the file to be used for persistence", default = "data.json")]
     file: PathBuf,
 
-    #[options(help = "the minimum profit per liquidation")]
+    #[options(help = "the minimum profit per liquidation", default = "0")]
     min_profit: U256,
 }
 

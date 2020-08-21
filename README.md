@@ -1,64 +1,106 @@
 # Yield Protocol Liquidator
 
-Liquidates undercollateralized yDAI-ETH positions.
+Liquidates undercollateralized yDAI-ETH positions using Uniswap V2 as a capital source.
 
-On each new block, it calls the controller's `isCollateralized` method for each user
-that has previously opened a position. This is done by checking all `Borrowed` events 
-and by compiling a database of addresses with currently open positions.
+```
+Usage: ./yield-liquidator [OPTIONS]
 
-If `isCollateralized` returns `false`, it proceeds to call the `Liquidations` contract's 
-`liquidate` function to claim the liquidation incentive. This can optionally be batched
-with the `buy` call to buy as much of the position as possible and liquidate it 
-for DAI on 1inch/uniswap.
+Optional arguments:
+  -h, --help
+  -c, --controller CONTROLLER
+                             the Yield controller's address
+  -l, --liquidations LIQUIDATIONS
+                             the Yield liquidation's address
+  -u, --uniswap UNISWAP      the DAI/WETH Uniswap V2 pair 
+  -f, --flashloan FLASHLOAN  the address of your flashloan contract
+  -U, --url URL              the Ethereum node HTTP endpoint (default: http://localhost:8545)
+  -p, --private-key PRIVATE-KEY
+                             your private key
+  -i, --interval INTERVAL    polling interval (ms)
+  -F, --file FILE            the file to be used for persistence (default: data.json)
+  -m, --min-profit MIN-PROFIT
+                             the minimum profit per liquidation
+```
 
-## CLI Options
+## Demo
 
-- Yield configuration with necessary addresses
-- Eth endpoint
-- Private key
-- start-block
-- should always buy? How much should it try to buy?
-- minimum amount
+### Local Testnet
 
-# Notes
+First we must clone the contracts and install the deps:
 
-- Generate corpus of addresses to monitor
-- Nonce manager
-- Gas price manager
-- Frontrunner
-- For an address: check if it can be liquidated -> liquidate
-- `trait Liquidator { fn monitor(user: Address); fn liquidate(user: Address);}`
+```
+git clone https://github.com/yieldprotocol/yDai
+git checkout liquidator-testing
+yarn
+```
 
-# Testing 
+In one terminal, run ganache: `./scripts/ganache.sh`
 
-- Go to the yDAI directory and copy the `setup_liquidation.js` file to the `scripts/` dir
-- Deploy the contracts `npx truffle migrate --reset`
-- `cargo run` to launch the liquidator
-- Create a vault that can be liquidated `npx truffle exec scripts/setup_liquidation.js`
-- Watch the liquidator see that the vault became undercollateralized!
+In another terminal, deploy the contracts: `npx truffle migrate --reset`
 
-# Participating in an Auction
+This deploys MakerDAO, Yield, UniswapV2, [Multicall](https://github.com/makerdao/multicall) and the Flashloan contract.
 
-This leverages Uniswap's Flash Swaps.
+Now we run the liquidator (the Multicall address must be provided explicitly):
 
-1. borrow DAI from Uniswap (`swap(x, 0, liquidatorContractAddress, abi.encode(user address))`)
-2. Buy ETH at a discount from Yield Liquidation
-3. Send the required ETH to Uniswap s.t xy = k holds!
+```
+RUST_LOG=yield_liquidator=trace cargo run -- --multicall D1Ed8059452f26360ba3DbD423cBfC955e9518cC
+```
 
-# Demo
+Finally, you can create a liquidation opportunity by running `npx truffle exec scripts/create_liquidation_opportunity.js`.
 
-1. Deploy contracts
-2. Deploy a Uniswap, mint a 50 ETH CDP @ 150 spot and draw 7500 DAI
-3. As a user, put up 1 ETH collateral @ 150 spot, draw 150 yDAI
-4. Now price moves against us
-5. It gets detected by the liquidator -> triggers it
-6. The liquidation gets detected -> tries to buy it with a flash loan -> returns that it's too expensive
-7. Advance some time -> gets bought
+Note: re-creating the liquidation opportunity requires balancing the price on Uniswap
+so that you can get a good flash-swap price, by increasing the ratio between its DAI / ETH
+reserves.
 
-NB: Each time a flashloan is done, we're borrowing DAI from Uniswap and returning ETH, so we're pushing DAI's price up. If you want to run more examples, do `dai.mint(pair.address, xxx)` followed by `pair.sync()` to update the reserves & price.
+### Rinkeby
 
-# Bugs
+The contracts for Rinkeby have already been deployed. You can interact with them using the helper scripts explained below:
 
-1. receipt & unknown decoding from RPC
+First, we must setup our environment:
+
+```
+git clone git@github.com:yieldprotocol/yield-cli.git
+yarn
+source config
+```
+
+The `config` file will set your environment variables to allow you to mint tokens to Uniswap, set MakerDAO prices, and borrow or collateralize on Yield.
+
+
+Now we'll run the liquidator:
+
+```
+RUST_LOG=yield_liquidator=trace cargo run -- \
+    -c ${CONTROLLER#"0x"} \
+    -l ${LIQUIDATIONS#"0x"} \
+    -u ${UNISWAP#"0x"} \
+    -f ${FLASH#"0x"} \
+    -p $PRIVATE_KEY \
+    -i 7000 \
+    -F rinkeby.json \
+    -U wss://rinkeby.infura.io/ws/v3/c60b0bb42f8a4c6481ecd229eddaca27 \
+    --min-profit 0
+```
+
+Finally, you can create a liquidation opportunity by running:
+
+```
+./src/set_eth_price.js 200
+./src/fund_uniswap.js 0 10000
+./src/borrow.js 1 166
+./src/set_eth_price.js 175
+```
+
+## How it Works
+
+On each block:
+1. Checks if any of our submitted transactions have been mined
+2. Updates our dataset of borrowers debt health & liquidation auctions with the new block's data
+3. Trigger the auction for any undercollateralized borrowers
+4. Try participating in any auctions which are worth buying
+
+## Known Bugs
+
+1. receipt & unknown decoding from RPC?
 2. too low nonce when used from the outside
 3. how to find uniswap situation. should price go up or down? how do we know? replace error with proper warning
