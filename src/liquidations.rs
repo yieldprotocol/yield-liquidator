@@ -54,11 +54,12 @@ impl<P: JsonRpcClient> Liquidator<P> {
         liquidations: Address,
         uniswap: Address,
         flashloan: Address,
+        multicall: Option<Address>,
         min_profit: U256,
         client: Arc<Client<P, Wallet>>,
         auctions: HashMap<Address, Auction>,
     ) -> Self {
-        let multicall = Multicall::new(client.clone(), None)
+        let multicall = Multicall::new(client.clone(), multicall)
             .await
             .expect("could not initialize multicall");
 

@@ -48,10 +48,11 @@ impl<P: JsonRpcClient> Borrowers<P> {
     /// Constructor
     pub async fn new(
         controller: Address,
+        multicall: Option<Address>,
         client: Arc<Client<P, Wallet>>,
         borrowers: HashMap<Address, Borrower>,
     ) -> Self {
-        let multicall = Multicall::new(client.clone(), None)
+        let multicall = Multicall::new(client.clone(), multicall)
             .await
             .expect("could not initialize multicall");
         Borrowers {

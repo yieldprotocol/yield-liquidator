@@ -39,6 +39,7 @@ impl<P: JsonRpcClient> Keeper<P> {
         liquidations: Address,
         uniswap: Address,
         flashloan: Address,
+        multicall: Option<Address>,
         min_profit: U256,
         state: Option<State>,
     ) -> Result<Keeper<P>> {
@@ -47,11 +48,12 @@ impl<P: JsonRpcClient> Keeper<P> {
             None => (HashMap::new(), HashMap::new(), 0.into()),
         };
 
-        let borrowers = Borrowers::new(controller, client.clone(), borrowers).await;
+        let borrowers = Borrowers::new(controller, multicall, client.clone(), borrowers).await;
         let liquidator = Liquidator::new(
             liquidations,
             uniswap,
             flashloan,
+            multicall,
             min_profit,
             client.clone(),
             vaults,

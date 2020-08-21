@@ -2,7 +2,7 @@ use ethers::prelude::*;
 use yield_liquidator::keeper::Keeper;
 
 use gumdrop::Options;
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{convert::TryFrom, path::PathBuf, sync::Arc, time::Duration};
 use tracing::info;
 use tracing_subscriber::{filter::EnvFilter, fmt::Subscriber};
 
@@ -36,6 +36,11 @@ struct Opts {
     flashloan: Address,
 
     #[options(
+        help = "the address of the Multicall contract (optional for any of the deployed testnets)"
+    )]
+    multicall: Option<Address>,
+
+    #[options(
         help = "the Ethereum node HTTP endpoint",
         default = "http://localhost:8545"
     )]
@@ -65,9 +70,19 @@ async fn main() -> anyhow::Result<()> {
 
     let opts = Opts::parse_args_default_or_exit();
 
-    let ws = Ws::connect(opts.url.clone()).await?;
-    let provider = Provider::new(ws);
-    // let provider = Provider::<Http>::try_from(opts.url.clone())?;
+    if opts.url.starts_with("http") {
+        let provider = Provider::<Http>::try_from(opts.url.clone())?;
+        run(opts, provider).await?;
+    } else {
+        let ws = Ws::connect(opts.url.clone()).await?;
+        let provider = Provider::new(ws);
+        run(opts, provider).await?;
+    }
+
+    Ok(())
+}
+
+async fn run<P: JsonRpcClient>(opts: Opts, provider: Provider<P>) -> anyhow::Result<()> {
     let wallet: Wallet = opts.private_key.parse()?;
     let client = wallet
         .connect(provider)
@@ -79,6 +94,7 @@ async fn main() -> anyhow::Result<()> {
     info!("Controller: {:?}", opts.controller);
     info!("Liquidations: {:?}", opts.liquidations);
     info!("Uniswap: {:?}", opts.uniswap);
+    info!("Multicall: {:?}", opts.multicall);
     info!("FlashLiquidator {:?}", opts.flashloan);
     info!("Persistent data will be stored at: {:?}", opts.file);
 
@@ -96,6 +112,7 @@ async fn main() -> anyhow::Result<()> {
         opts.liquidations,
         opts.uniswap,
         opts.flashloan,
+        opts.multicall,
         opts.min_profit,
         state,
     )
