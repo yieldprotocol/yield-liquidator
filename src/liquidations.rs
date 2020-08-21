@@ -30,6 +30,9 @@ pub struct Liquidator<P> {
     /// our RPC endpoint
     multicall: Multicall<P, Wallet>,
 
+    /// The minimum profit to be extracted per liquidation
+    min_profit: U256,
+
     pending_liquidations: HashMap<Address, TxHash>,
     pending_auctions: HashMap<Address, TxHash>,
 }
@@ -51,6 +54,7 @@ impl<P: JsonRpcClient> Liquidator<P> {
         liquidations: Address,
         uniswap: Address,
         flashloan: Address,
+        min_profit: U256,
         client: Arc<Client<P, Wallet>>,
         auctions: HashMap<Address, Auction>,
     ) -> Self {
@@ -63,6 +67,7 @@ impl<P: JsonRpcClient> Liquidator<P> {
             uniswap: Uniswap::new(uniswap, client.clone()),
             flashloan,
             multicall,
+            min_profit,
             auctions,
 
             pending_liquidations: HashMap::new(),
@@ -149,10 +154,7 @@ impl<P: JsonRpcClient> Liquidator<P> {
             return Ok(());
         }
 
-        // TODO: Should this be done via gas estimation? A minimum 0.1 ETH
-        // profit seems good enough.
-        let min_profit_eth = U256::from(1e17 as u64);
-        let args = abi::encode(&(user, min_profit_eth).into_tokens());
+        let args = abi::encode(&(user, self.min_profit).into_tokens());
 
         // Calls Uniswap's `swap` function which will optimistically let us
         // borrow the debt, which will then make a callback to the flashloan
@@ -204,7 +206,7 @@ impl<P: JsonRpcClient> Liquidator<P> {
             // only iterate over users that do not have pending liquidations
             if let Some(tx_hash) = self.pending_liquidations.get(&user) {
                 trace!(tx_hash = ?tx_hash, user = ?user, "liquidation not confirmed yet");
-                continue
+                continue;
             }
 
             if !details.is_collateralized {

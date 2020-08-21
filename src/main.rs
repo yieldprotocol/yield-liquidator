@@ -52,6 +52,9 @@ struct Opts {
 
     #[options(help = "the file to be used for persistence", default = "data.json")]
     file: PathBuf,
+
+    #[options(help = "the minimum profit per liquidation")]
+    min_profit: U256,
 }
 
 #[tokio::main]
@@ -93,6 +96,7 @@ async fn main() -> anyhow::Result<()> {
         opts.liquidations,
         opts.uniswap,
         opts.flashloan,
+        opts.min_profit,
         state,
     )
     .await?;

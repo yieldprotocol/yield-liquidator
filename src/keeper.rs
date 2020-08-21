@@ -39,6 +39,7 @@ impl<P: JsonRpcClient> Keeper<P> {
         liquidations: Address,
         uniswap: Address,
         flashloan: Address,
+        min_profit: U256,
         state: Option<State>,
     ) -> Result<Keeper<P>> {
         let (borrowers, vaults, last_block) = match state {
@@ -47,8 +48,15 @@ impl<P: JsonRpcClient> Keeper<P> {
         };
 
         let borrowers = Borrowers::new(controller, client.clone(), borrowers).await;
-        let liquidator =
-            Liquidator::new(liquidations, uniswap, flashloan, client.clone(), vaults).await;
+        let liquidator = Liquidator::new(
+            liquidations,
+            uniswap,
+            flashloan,
+            min_profit,
+            client.clone(),
+            vaults,
+        )
+        .await;
 
         Ok(Self {
             client,
@@ -62,7 +70,7 @@ impl<P: JsonRpcClient> Keeper<P> {
         let watcher = self.client.clone();
         let mut on_block = watcher.watch_blocks().await?.stream();
 
-        while let Some(_) = on_block.next().await {
+        while on_block.next().await.is_some() {
             let file = std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
