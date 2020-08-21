@@ -6,12 +6,11 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0.32"
-# ethers = { path = "../../ethers-rs/ethers" }
-ethers = { git = "https://github.com/gakonst/ethers-rs" }
+ethers = { git = "https://github.com/gakonst/ethers-rs", branch = "nonce-manager" }
+# ethers = { git = "https://github.com/gakonst/ethers-rs" }
 serde_json = "1.0.57"
 tokio = { version = "0.2.22", features = ["macros"] }
 
-# TODO: These are still not used
 # CLI
 gumdrop = "0.8.0"
 # Logging
@@ -20,5 +19,4 @@ tracing-subscriber = "0.2.10"
 serde = "1.0.114"
 
 [build-dependencies]
-# ethers = { path = "../../ethers-rs/ethers", features = ["abigen"] }
-ethers = { git = "https://github.com/gakonst/ethers-rs", features = ["abigen"] }
+ethers = { git = "https://github.com/gakonst/ethers-rs", branch = "nonce-manager", features = ["abigen"] }

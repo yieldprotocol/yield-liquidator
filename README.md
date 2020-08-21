@@ -87,7 +87,7 @@ Finally, you can create a liquidation opportunity by running:
 ```
 ./src/set_eth_price.js 200
 ./src/fund_uniswap.js 0 10000
-./src/borrow.js 1 166
+./src/control.js 1 166
 ./src/set_eth_price.js 175
 ```
 
