@@ -82,17 +82,27 @@ impl<P: JsonRpcClient> Liquidator<P> {
         let client = self.liquidations.client();
         for (addr, tx_hash) in self.pending_auctions.clone().into_iter() {
             let receipt = client.get_transaction_receipt(tx_hash).await?;
-            if receipt.status == Some(1.into()) {
-                trace!(tx_hash = ?tx_hash, user = ?addr, "bid confirmed");
+            if let Some(receipt) = receipt {
                 self.pending_auctions.remove(&addr);
+                let status = if receipt.status == Some(1.into()) {
+                    "success"
+                } else {
+                    "fail"
+                };
+                trace!(tx_hash = ?tx_hash, user = ?addr, status = status, "bid confirmed");
             }
         }
 
         for (addr, tx_hash) in self.pending_liquidations.clone().into_iter() {
             let receipt = client.get_transaction_receipt(tx_hash).await?;
-            if receipt.status == Some(1.into()) {
-                trace!(tx_hash = ?tx_hash, user = ?addr, "liquidation confirmed");
+            if let Some(receipt) = receipt {
                 self.pending_liquidations.remove(&addr);
+                let status = if receipt.status == Some(1.into()) {
+                    "success"
+                } else {
+                    "fail"
+                };
+                trace!(tx_hash = ?tx_hash, user = ?addr, status = status, "liquidation confirmed");
             }
         }
 
