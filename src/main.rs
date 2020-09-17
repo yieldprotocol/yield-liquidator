@@ -2,6 +2,7 @@ use ethers::prelude::*;
 use yield_liquidator::keeper::Keeper;
 
 use gumdrop::Options;
+use serde::Deserialize;
 use std::{convert::TryFrom, path::PathBuf, sync::Arc, time::Duration};
 use tracing::info;
 use tracing_subscriber::{filter::EnvFilter, fmt::Subscriber};
@@ -11,46 +12,17 @@ use tracing_subscriber::{filter::EnvFilter, fmt::Subscriber};
 struct Opts {
     help: bool,
 
-    #[options(
-        help = "the Yield controller's address",
-        default = "Cf699af73C25aC785E8Da72F4fA7872c86D43C15"
-    )]
-    controller: Address,
+    #[options(help = "path to json file with the contract addresses")]
+    config: PathBuf,
 
     #[options(
-        help = "the Yield liquidation's address",
-        default = "b85F3d294edD2B76128cf918800BB21081f59223"
-    )]
-    liquidations: Address,
-
-    #[options(
-        help = "the DAI/WETH Uniswap V2 pair",
-        default = "6025b901C88e5739Cb4112fcf3F27E0264c5BdDe"
-    )]
-    uniswap: Address,
-
-    #[options(
-        help = "the address of your flashloan contract",
-        default = "FE35d86cb5b6c0273fAC070Cc40aFeA77574cEF0"
-    )]
-    flashloan: Address,
-
-    #[options(
-        help = "the address of the Multicall contract (optional for any of the deployed testnets)"
-    )]
-    multicall: Option<Address>,
-
-    #[options(
-        help = "the Ethereum node HTTP endpoint",
+        help = "the Ethereum node endpoint (HTTP or WS)",
         default = "http://localhost:8545"
     )]
     url: String,
 
-    #[options(
-        help = "your private key",
-        default = "8b6e036da61e5ac4874a770d7258583cd1b373798e740deaff4015fea80294b0"
-    )]
-    private_key: String,
+    #[options(help = "path to your private key")]
+    private_key: PathBuf,
 
     #[options(help = "polling interval (ms)", default = "1000")]
     interval: u64,
@@ -60,6 +32,15 @@ struct Opts {
 
     #[options(help = "the minimum profit per liquidation", default = "0")]
     min_profit: U256,
+}
+
+#[derive(Deserialize)]
+struct Config {
+    controller: Address,
+    liquidations: Address,
+    uniswap: Address,
+    flashloan: Address,
+    multicall: Option<Address>,
 }
 
 #[tokio::main]
@@ -83,19 +64,25 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn run<P: JsonRpcClient>(opts: Opts, provider: Provider<P>) -> anyhow::Result<()> {
-    let wallet: Wallet = opts.private_key.parse()?;
+    info!("Starting Yield Liquidator.");
+    let wallet: Wallet = std::fs::read_to_string(opts.private_key)?.parse()?;
     let client = wallet
         .connect(provider)
-        .interval(Duration::from_millis(opts.interval));
+        .interval(Duration::from_millis(opts.interval))
+        // enable the nonce-manager so that we can send multiple transactions in a row
+        // without waiting for them to be included in the mempool
+        .with_nonce_manager();
     let client = Arc::new(client);
-    info!("Starting Yield Liquidator.");
-    info!("Node: {}", opts.url);
     info!("Profits will be sent to {:?}", client.address());
-    info!("Controller: {:?}", opts.controller);
-    info!("Liquidations: {:?}", opts.liquidations);
-    info!("Uniswap: {:?}", opts.uniswap);
-    info!("Multicall: {:?}", opts.multicall);
-    info!("FlashLiquidator {:?}", opts.flashloan);
+
+    info!("Node: {}", opts.url);
+
+    let cfg: Config = serde_json::from_reader(std::fs::File::open(opts.config)?)?;
+    info!("Controller: {:?}", cfg.controller);
+    info!("Liquidations: {:?}", cfg.liquidations);
+    info!("Uniswap: {:?}", cfg.uniswap);
+    info!("Multicall: {:?}", cfg.multicall);
+    info!("FlashLiquidator {:?}", cfg.flashloan);
     info!("Persistent data will be stored at: {:?}", opts.file);
 
     let file = std::fs::OpenOptions::new()
@@ -108,11 +95,11 @@ async fn run<P: JsonRpcClient>(opts: Opts, provider: Provider<P>) -> anyhow::Res
 
     let mut keeper = Keeper::new(
         client,
-        opts.controller,
-        opts.liquidations,
-        opts.uniswap,
-        opts.flashloan,
-        opts.multicall,
+        cfg.controller,
+        cfg.liquidations,
+        cfg.uniswap,
+        cfg.flashloan,
+        cfg.multicall,
         opts.min_profit,
         state,
     )

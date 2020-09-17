@@ -72,24 +72,34 @@ impl<P: JsonRpcClient> Keeper<P> {
         let watcher = self.client.clone();
         let mut on_block = watcher.watch_blocks().await?.stream();
 
+        let mut file: Option<std::fs::File> = None;
         while on_block.next().await.is_some() {
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .open(&fname)
-                .unwrap();
-
             let block_number = self.client.get_block_number().await?;
+
+            if block_number % 10 == 0.into() {
+                // on each new block we open a new file handler to dump our state.
+                // we should just have a database connection instead here...
+                file = Some(
+                    std::fs::OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .create(true)
+                        .open(&fname)
+                        .unwrap(),
+                );
+            }
+
             let span = debug_span!("eloop", block = %block_number);
             let _enter = span.enter();
+
+            // run the logic for this block
             self.on_block(block_number).await?;
 
             // update our last block
             self.last_block = block_number;
 
-            // Log once every 20 blocks (~300s)
-            if block_number % 10 == 0.into() {
+            // Log once every 10 blocks
+            if let Some(file) = file.take() {
                 self.log(file);
             }
         }
