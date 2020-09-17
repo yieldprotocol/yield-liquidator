@@ -7,19 +7,26 @@ Usage: ./yield-liquidator [OPTIONS]
 
 Optional arguments:
   -h, --help
-  -c, --controller CONTROLLER
-                             the Yield controller's address
-  -l, --liquidations LIQUIDATIONS
-                             the Yield liquidation's address
-  -u, --uniswap UNISWAP      the DAI/WETH Uniswap V2 pair 
-  -f, --flashloan FLASHLOAN  the address of your flashloan contract
-  -U, --url URL              the Ethereum node HTTP endpoint (default: http://localhost:8545)
+  -c, --config CONFIG      path to json file with the contract addresses
+  -u, --url URL            the Ethereum node endpoint (HTTP or WS) (default: http://localhost:8545)
   -p, --private-key PRIVATE-KEY
-                             your private key
-  -i, --interval INTERVAL    polling interval (ms)
-  -F, --file FILE            the file to be used for persistence (default: data.json)
+                           path to your private key
+  -i, --interval INTERVAL  polling interval (ms) (default: 1000)
+  -f, --file FILE          the file to be used for persistence (default: data.json)
   -m, --min-profit MIN-PROFIT
-                             the minimum profit per liquidation
+                           the minimum profit per liquidation (default: 0)
+```
+
+Your contracts config file should be in the following format where `uniswap` is the
+UniswapV2 WETH/DAI pair and `flashloan` is the [Flash.sol](./Flash.sol) contract.
+
+```
+{
+   "controller" : "0xd160C973a098608e2D7d6E43C64Eee48766800D1",
+   "liquidations" : "0xbC0200F0AAD7C1c0bBB1CC7885E1e796DFFac3e0",
+   "uniswap": "0xbC0200F0AAD7C1c0bBB1CC7885E1e796DFFac3e0",
+   "flashloan": "0xbC0200F0AAD7C1c0bBB1CC7885E1e796DFFac3e0"
+}
 ```
 
 ## Demo
