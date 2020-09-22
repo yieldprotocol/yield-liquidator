@@ -13,12 +13,12 @@ use tracing::debug_span;
 #[derive(Serialize, Deserialize, Default)]
 /// The state which is stored in our logs
 pub struct State {
-    /// The vaults being monitored
-    vaults: HashMap<Address, Auction>,
+    /// The auctions being monitored
+    auctions: HashMap<Address, Auction>,
     /// The borrowers being monitored
     borrowers: HashMap<Address, Borrower>,
     /// The last observed block
-    last_block: U64,
+    last_block: u64,
 }
 
 /// The keeper monitors the chain for both liquidation opportunities and for
@@ -46,7 +46,7 @@ impl<P: JsonRpcClient> Keeper<P> {
         state: Option<State>,
     ) -> Result<Keeper<P>> {
         let (borrowers, vaults, last_block) = match state {
-            Some(state) => (state.borrowers, state.vaults, state.last_block),
+            Some(state) => (state.borrowers, state.auctions, state.last_block.into()),
             None => (HashMap::new(), HashMap::new(), 0.into()),
         };
 
@@ -71,7 +71,12 @@ impl<P: JsonRpcClient> Keeper<P> {
         })
     }
 
-    pub async fn run(&mut self, fname: PathBuf) -> Result<()> {
+    pub async fn run(&mut self, fname: PathBuf, start_block: Option<u64>) -> Result<()> {
+        // Create the initial list of borrowers from the start_block, if provided
+        if let Some(start_block) = start_block {
+            self.last_block = start_block.into();
+        }
+
         let watcher = self.client.clone();
         let mut on_block = watcher.watch_blocks().await?.stream();
 
@@ -140,9 +145,9 @@ impl<P: JsonRpcClient> Keeper<P> {
         serde_json::to_writer(
             w,
             &State {
-                vaults: self.liquidator.auctions.clone(),
+                auctions: self.liquidator.auctions.clone(),
                 borrowers: self.borrowers.borrowers.clone(),
-                last_block: self.last_block,
+                last_block: self.last_block.as_u64(),
             },
         )
         .unwrap();

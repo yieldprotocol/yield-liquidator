@@ -32,6 +32,9 @@ struct Opts {
 
     #[options(help = "the minimum profit per liquidation", default = "0")]
     min_profit: U256,
+
+    #[options(help = "the block to start watching from")]
+    start_block: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -94,7 +97,9 @@ async fn run<P: JsonRpcClient>(opts: Opts, provider: Provider<P>) -> anyhow::Res
     let state = serde_json::from_reader(&file).unwrap_or_default();
 
     let mut gas_escalator = GeometricGasPrice::new();
-    gas_escalator.every_secs = 120;
+    gas_escalator.coefficient = 1.12501;
+    gas_escalator.every_secs = 5; // TODO: Make this be 90s
+    gas_escalator.max_price = Some(U256::from(5000 * 1e9 as u64)); // 5k gwei
 
     let mut keeper = Keeper::new(
         client,
@@ -109,7 +114,7 @@ async fn run<P: JsonRpcClient>(opts: Opts, provider: Provider<P>) -> anyhow::Res
     )
     .await?;
 
-    keeper.run(opts.file).await?;
+    keeper.run(opts.file, opts.start_block).await?;
 
     Ok(())
 }

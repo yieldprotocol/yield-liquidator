@@ -127,11 +127,6 @@ impl<P: JsonRpcClient> Liquidator<P> {
                 "gas price must be set in pending txs"
             );
 
-            debug_assert!(
-                pending_tx.0.nonce.is_some(),
-                "nonce must be set in pending txs"
-            );
-
             // get the receipt and check inclusion, or bump its gas price
             let receipt = client.get_transaction_receipt(pending_tx.1).await?;
             if let Some(receipt) = receipt {
@@ -162,8 +157,7 @@ impl<P: JsonRpcClient> Liquidator<P> {
                     .send_transaction(replacement_tx.0.clone(), None)
                     .await?;
 
-                // update the tx broadcast time
-                replacement_tx.2 = now;
+                trace!(tx_hash = ?pending_tx.1, new_gas_price = %new_gas_price, user = ?addr, tx_type = %tx_type, "replaced");
             }
         }
 
