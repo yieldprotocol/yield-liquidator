@@ -48,9 +48,9 @@ checksum = "cff77d8686867eceff3105329d4698d96c2391c176d5d03adc90c7389162b5b8"
 
 [[package]]
 name = "async-trait"
-version = "0.1.36"
+version = "0.1.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a265e3abeffdce30b2e26b7a11b222fe37c6067404001b434101457d0385eb92"
+checksum = "687c230d85c0a52504709705fc8a53e4a692b83a2184f03dae73e38e1e93a783"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -311,7 +311,7 @@ dependencies = [
 [[package]]
 name = "ethers"
 version = "0.1.3"
-source = "git+https://github.com/gakonst/ethers-rs#a3fa77744ea12845c97e83cc104da26731753723"
+source = "git+https://github.com/gakonst/ethers-rs#8ff9a894c0946245ba7f746b7081c67565edcc34"
 dependencies = [
  "ethers-contract",
  "ethers-core",
@@ -322,7 +322,7 @@ dependencies = [
 [[package]]
 name = "ethers-contract"
 version = "0.1.3"
-source = "git+https://github.com/gakonst/ethers-rs#a3fa77744ea12845c97e83cc104da26731753723"
+source = "git+https://github.com/gakonst/ethers-rs#8ff9a894c0946245ba7f746b7081c67565edcc34"
 dependencies = [
  "ethers-contract-abigen",
  "ethers-contract-derive",
@@ -340,7 +340,7 @@ dependencies = [
 [[package]]
 name = "ethers-contract-abigen"
 version = "0.1.3"
-source = "git+https://github.com/gakonst/ethers-rs#a3fa77744ea12845c97e83cc104da26731753723"
+source = "git+https://github.com/gakonst/ethers-rs#8ff9a894c0946245ba7f746b7081c67565edcc34"
 dependencies = [
  "Inflector",
  "anyhow",
@@ -358,7 +358,7 @@ dependencies = [
 [[package]]
 name = "ethers-contract-derive"
 version = "0.1.3"
-source = "git+https://github.com/gakonst/ethers-rs#a3fa77744ea12845c97e83cc104da26731753723"
+source = "git+https://github.com/gakonst/ethers-rs#8ff9a894c0946245ba7f746b7081c67565edcc34"
 dependencies = [
  "ethers-contract-abigen",
  "ethers-core",
@@ -371,7 +371,7 @@ dependencies = [
 [[package]]
 name = "ethers-core"
 version = "0.1.3"
-source = "git+https://github.com/gakonst/ethers-rs#a3fa77744ea12845c97e83cc104da26731753723"
+source = "git+https://github.com/gakonst/ethers-rs#8ff9a894c0946245ba7f746b7081c67565edcc34"
 dependencies = [
  "arrayvec",
  "ethabi-next",
@@ -390,7 +390,7 @@ dependencies = [
 [[package]]
 name = "ethers-providers"
 version = "0.1.3"
-source = "git+https://github.com/gakonst/ethers-rs#a3fa77744ea12845c97e83cc104da26731753723"
+source = "git+https://github.com/gakonst/ethers-rs#8ff9a894c0946245ba7f746b7081c67565edcc34"
 dependencies = [
  "async-trait",
  "async-tungstenite",
@@ -412,8 +412,9 @@ dependencies = [
 [[package]]
 name = "ethers-signers"
 version = "0.1.3"
-source = "git+https://github.com/gakonst/ethers-rs#a3fa77744ea12845c97e83cc104da26731753723"
+source = "git+https://github.com/gakonst/ethers-rs#8ff9a894c0946245ba7f746b7081c67565edcc34"
 dependencies = [
+ "async-trait",
  "ethers-core",
  "ethers-providers",
  "futures-util",
