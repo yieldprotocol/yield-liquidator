@@ -1,5 +1,6 @@
 pub mod bindings;
 pub mod borrowers;
+pub mod escalator;
 pub mod keeper;
 pub mod liquidations;
 
