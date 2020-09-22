@@ -33,9 +33,12 @@ pub struct Liquidator<P> {
     /// The minimum profit to be extracted per liquidation
     min_profit: U256,
 
-    pending_liquidations: HashMap<Address, TxHash>,
-    pending_auctions: HashMap<Address, TxHash>,
+    pending_liquidations: HashMap<Address, PendingTransaction>,
+    pending_auctions: HashMap<Address, PendingTransaction>,
 }
+
+/// Tx / Hash/ Submitted at time
+type PendingTransaction = (TransactionRequest, TxHash, Instant);
 
 /// An initiated auction
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -110,7 +113,12 @@ impl<P: JsonRpcClient> Liquidator<P> {
     }
 
     /// Sends a bid for any of the liquidation auctions.
-    pub async fn buy_opportunities(&mut self, from_block: U64, to_block: U64) -> Result<()> {
+    pub async fn buy_opportunities(
+        &mut self,
+        from_block: U64,
+        to_block: U64,
+        gas_price: U256,
+    ) -> Result<()> {
         let all_users = {
             let liquidations = self
                 .liquidations
@@ -123,18 +131,8 @@ impl<P: JsonRpcClient> Liquidator<P> {
             merge(new_users, &self.auctions)
         };
 
-        let address = self.uniswap.client().address();
-        let balance_before = self.uniswap.client().get_balance(address, None).await?;
         for user in all_users {
-            self.buy(user).await?;
-        }
-        let balance_after = self.uniswap.client().get_balance(address, None).await?;
-
-        if balance_after > balance_before {
-            info!(
-                "done buying. profit: {} WEI",
-                (balance_after - balance_before)
-            );
+            self.buy(user, Instant::now(), gas_price).await?;
         }
 
         Ok(())
@@ -142,46 +140,45 @@ impl<P: JsonRpcClient> Liquidator<P> {
 
     /// Tries to buy the collateral associated with a user's liquidation auction
     /// via a flashloan funded by Uniswap's DAI/WETH pair.
-    async fn buy(&mut self, user: Address) -> Result<()> {
+    async fn buy(&mut self, user: Address, now: Instant, gas_price: U256) -> Result<()> {
         // only iterate over users that do not have active auctions
-        if let Some(tx_hash) = self.pending_auctions.get(&user) {
-            trace!(tx_hash = ?tx_hash, user = ?user, "bid not confirmed yet");
+        if let Some(pending_tx) = self.pending_auctions.get(&user) {
+            trace!(tx_hash = ?pending_tx.1, user = ?user, "bid not confirmed yet");
             return Ok(());
         }
 
+        // Get the vault's info
         let vault = self.get_vault(user).await?;
-        let timestamp = vault.started;
-        let debt = vault.debt;
+        // Skip auctions which do not have any outstanding debt
+        if vault.debt == 0 {
+            return Ok(());
+        }
+
         if self.auctions.insert(user, vault.clone()).is_none() {
             debug!(user = ?user, vault = ?vault, "new auction");
         }
-
-        let span = debug_span!("buying", user = ?user, auction_start = %timestamp, auction_end = %(timestamp + 3600), debt = %debt);
+        let span = debug_span!("buying", user = ?user, auction_start = %vault.started, auction_end = %(vault.started + 3600), debt = %vault.debt);
         let _enter = span.enter();
 
-        // Skip auctions which do not have any outstanding debt
-        if vault.debt == 0 {
-            // trace!("Vault liquidated");
-            return Ok(());
-        }
-
+        // Craft the flashloan contract's arguments
         let args = abi::encode(&(user, self.min_profit).into_tokens());
 
         // Calls Uniswap's `swap` function which will optimistically let us
         // borrow the debt, which will then make a callback to the flashloan
         // contract which will execute the liquidation
-        let tx_hash = match self
+        let call = self
             .uniswap
-            .swap(debt.into(), 0.into(), self.flashloan, args)
-            .block(BlockNumber::Pending)
-            .send()
-            .await
-        {
+            .swap(vault.debt.into(), 0.into(), self.flashloan, args)
+            .gas_price(gas_price)
+            .block(BlockNumber::Pending);
+
+        let tx = call.tx.clone();
+
+        match call.send().await {
             Ok(hash) => {
                 // record the tx
                 trace!(tx_hash = ?hash, "Submitted buy order");
-                self.pending_auctions.entry(user).or_insert(hash);
-                hash
+                self.pending_auctions.entry(user).or_insert((tx, hash, now));
             }
             Err(err) => {
                 let err = err.to_string();
@@ -193,14 +190,8 @@ impl<P: JsonRpcClient> Liquidator<P> {
                 } else {
                     error!("Error: {}", err);
                 }
-
-                return Ok(());
             }
         };
-
-        // Wait for the tx to be confirmed...
-        let receipt = self.uniswap.client().pending_transaction(tx_hash).await?;
-        debug!("bought. gas used {}", receipt.gas_used.unwrap());
 
         Ok(())
     }
@@ -210,13 +201,16 @@ impl<P: JsonRpcClient> Liquidator<P> {
     pub async fn trigger_liquidations(
         &mut self,
         borrowers: impl Iterator<Item = (&Address, &Borrower)>,
+        gas_price: U256,
     ) -> Result<()> {
         debug!("checking for undercollateralized positions...");
 
+        let now = Instant::now();
+
         for (user, details) in borrowers {
             // only iterate over users that do not have pending liquidations
-            if let Some(tx_hash) = self.pending_liquidations.get(&user) {
-                trace!(tx_hash = ?tx_hash, user = ?user, "liquidation not confirmed yet");
+            if let Some(pending_tx) = self.pending_liquidations.get(&user) {
+                trace!(tx_hash = ?pending_tx.1, user = ?user, "liquidation not confirmed yet");
                 continue;
             }
 
@@ -229,9 +223,13 @@ impl<P: JsonRpcClient> Liquidator<P> {
                 );
 
                 // Send the tx and track it
-                let tx_hash = self.liquidations.liquidate(*user).send().await?;
+                let call = self.liquidations.liquidate(*user).gas_price(gas_price);
+                let tx = call.tx.clone();
+                let tx_hash = call.send().await?;
                 trace!(tx_hash = ?tx_hash, user = ?user, "Submitted liquidation");
-                self.pending_liquidations.entry(*user).or_insert(tx_hash);
+                self.pending_liquidations
+                    .entry(*user)
+                    .or_insert((tx, tx_hash, now));
             }
         }
 

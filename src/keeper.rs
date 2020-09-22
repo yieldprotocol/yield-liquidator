@@ -109,6 +109,9 @@ impl<P: JsonRpcClient> Keeper<P> {
 
     /// Runs the liquidation business logic for the specified block
     async fn on_block(&mut self, block_number: U64) -> Result<()> {
+        // Get the gas price - TODO: Replace with gas price oracle
+        let gas_price = self.client.get_gas_price().await?;
+
         // 1. Check if our transactions have been mined
         self.liquidator.remove_confirmed().await?;
 
@@ -119,12 +122,12 @@ impl<P: JsonRpcClient> Keeper<P> {
 
         // 3. trigger the auction for any undercollateralized borrowers
         self.liquidator
-            .trigger_liquidations(self.borrowers.borrowers.iter())
+            .trigger_liquidations(self.borrowers.borrowers.iter(), gas_price)
             .await?;
 
         // 4. try buying the ones which are worth buying
         self.liquidator
-            .buy_opportunities(self.last_block, block_number)
+            .buy_opportunities(self.last_block, block_number, gas_price)
             .await?;
 
         Ok(())
