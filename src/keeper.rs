@@ -1,5 +1,6 @@
 use crate::{
     borrowers::{Borrower, Borrowers},
+    escalator::GeometricGasPrice,
     liquidations::{Auction, Liquidator},
 };
 
@@ -41,6 +42,7 @@ impl<P: JsonRpcClient> Keeper<P> {
         flashloan: Address,
         multicall: Option<Address>,
         min_profit: U256,
+        gas_escalator: GeometricGasPrice,
         state: Option<State>,
     ) -> Result<Keeper<P>> {
         let (borrowers, vaults, last_block) = match state {
@@ -57,6 +59,7 @@ impl<P: JsonRpcClient> Keeper<P> {
             min_profit,
             client.clone(),
             vaults,
+            gas_escalator,
         )
         .await;
 
@@ -113,7 +116,7 @@ impl<P: JsonRpcClient> Keeper<P> {
         let gas_price = self.client.get_gas_price().await?;
 
         // 1. Check if our transactions have been mined
-        self.liquidator.remove_confirmed().await?;
+        self.liquidator.remove_or_bump().await?;
 
         // 2. update our dataset with the new block's data
         self.borrowers

@@ -1,5 +1,5 @@
 use ethers::prelude::*;
-use yield_liquidator::keeper::Keeper;
+use yield_liquidator::{escalator::GeometricGasPrice, keeper::Keeper};
 
 use gumdrop::Options;
 use serde::Deserialize;
@@ -93,6 +93,9 @@ async fn run<P: JsonRpcClient>(opts: Opts, provider: Provider<P>) -> anyhow::Res
         .unwrap();
     let state = serde_json::from_reader(&file).unwrap_or_default();
 
+    let mut gas_escalator = GeometricGasPrice::new();
+    gas_escalator.every_secs = 120;
+
     let mut keeper = Keeper::new(
         client,
         cfg.controller,
@@ -101,6 +104,7 @@ async fn run<P: JsonRpcClient>(opts: Opts, provider: Provider<P>) -> anyhow::Res
         cfg.flashloan,
         cfg.multicall,
         opts.min_profit,
+        gas_escalator,
         state,
     )
     .await?;

@@ -5,6 +5,7 @@
 use crate::{
     bindings::{Liquidations, UniswapV2Pair as Uniswap},
     borrowers::Borrower,
+    escalator::GeometricGasPrice,
     merge,
 };
 
@@ -14,7 +15,7 @@ use ethers::{
     prelude::*,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, fmt, sync::Arc, time::Instant};
 use tracing::{debug, debug_span, error, info, trace};
 
 #[derive(Clone)]
@@ -35,6 +36,7 @@ pub struct Liquidator<P> {
 
     pending_liquidations: HashMap<Address, PendingTransaction>,
     pending_auctions: HashMap<Address, PendingTransaction>,
+    gas_escalator: GeometricGasPrice,
 }
 
 /// Tx / Hash/ Submitted at time
@@ -51,6 +53,22 @@ pub struct Auction {
     collateral: u128,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+enum TxType {
+    Auction,
+    Liquidation,
+}
+
+impl fmt::Display for TxType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let string = match self {
+            TxType::Auction => "auction",
+            TxType::Liquidation => "liquidation",
+        };
+        write!(f, "{}", string)
+    }
+}
+
 impl<P: JsonRpcClient> Liquidator<P> {
     /// Constructor
     pub async fn new(
@@ -61,6 +79,7 @@ impl<P: JsonRpcClient> Liquidator<P> {
         min_profit: U256,
         client: Arc<Client<P, Wallet>>,
         auctions: HashMap<Address, Auction>,
+        gas_escalator: GeometricGasPrice,
     ) -> Self {
         let multicall = Multicall::new(client.clone(), multicall)
             .await
@@ -76,36 +95,75 @@ impl<P: JsonRpcClient> Liquidator<P> {
 
             pending_liquidations: HashMap::new(),
             pending_auctions: HashMap::new(),
+            gas_escalator,
         }
     }
 
-    /// Checks if any transactions which have been submitted are mined, and removes
-    /// them if they were successful.
-    pub async fn remove_confirmed(&mut self) -> Result<()> {
-        let client = self.liquidations.client();
-        for (addr, tx_hash) in self.pending_auctions.clone().into_iter() {
-            let receipt = client.get_transaction_receipt(tx_hash).await?;
-            if let Some(receipt) = receipt {
-                self.pending_auctions.remove(&addr);
-                let status = if receipt.status == Some(1.into()) {
-                    "success"
-                } else {
-                    "fail"
-                };
-                trace!(tx_hash = ?tx_hash, user = ?addr, status = status, "bid confirmed");
-            }
-        }
+    /// Checks if any transactions which have been submitted are mined, removes
+    /// them if they were successful, otherwise bumps their gas price
+    pub async fn remove_or_bump(&mut self) -> Result<()> {
+        let now = Instant::now();
 
-        for (addr, tx_hash) in self.pending_liquidations.clone().into_iter() {
-            let receipt = client.get_transaction_receipt(tx_hash).await?;
+        // Check all the pending liquidations
+        self.remove_or_bump_inner(now, TxType::Liquidation).await?;
+
+        // Check all the pending auctions
+        self.remove_or_bump_inner(now, TxType::Auction).await?;
+
+        Ok(())
+    }
+
+    async fn remove_or_bump_inner(&mut self, now: Instant, tx_type: TxType) -> Result<()> {
+        let client = self.liquidations.client();
+
+        let pending_txs = match tx_type {
+            TxType::Liquidation => &mut self.pending_liquidations,
+            TxType::Auction => &mut self.pending_auctions,
+        };
+
+        for (addr, pending_tx) in pending_txs.clone().into_iter() {
+            debug_assert!(
+                pending_tx.0.gas_price.is_some(),
+                "gas price must be set in pending txs"
+            );
+
+            debug_assert!(
+                pending_tx.0.nonce.is_some(),
+                "nonce must be set in pending txs"
+            );
+
+            // get the receipt and check inclusion, or bump its gas price
+            let receipt = client.get_transaction_receipt(pending_tx.1).await?;
             if let Some(receipt) = receipt {
-                self.pending_liquidations.remove(&addr);
+                pending_txs.remove(&addr);
                 let status = if receipt.status == Some(1.into()) {
                     "success"
                 } else {
                     "fail"
                 };
-                trace!(tx_hash = ?tx_hash, user = ?addr, status = status, "liquidation confirmed");
+                trace!(tx_hash = ?pending_tx.1, gas_used = %receipt.gas_used.unwrap_or_default(), user = ?addr, status = status, tx_type = %tx_type, "confirmed");
+            } else {
+                // Get the new gas price based on how much time passed since the
+                // tx was last broadcast
+                let new_gas_price = self.gas_escalator.get_gas_price(
+                    pending_tx.0.gas_price.expect("gas price must be set"),
+                    now.duration_since(pending_tx.2).as_secs(),
+                );
+
+                let replacement_tx = pending_txs
+                    .get_mut(&addr)
+                    .expect("tx will always be found since we're iterating over the map");
+
+                // bump the gas price
+                replacement_tx.0.gas_price = Some(new_gas_price);
+
+                // rebroadcast (TODO: Can we avoid cloning?)
+                replacement_tx.1 = client
+                    .send_transaction(replacement_tx.0.clone(), None)
+                    .await?;
+
+                // update the tx broadcast time
+                replacement_tx.2 = now;
             }
         }
 
