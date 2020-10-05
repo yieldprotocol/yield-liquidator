@@ -39,10 +39,15 @@ struct Opts {
 
 #[derive(Deserialize)]
 struct Config {
+    #[serde(rename = "Controller")]
     controller: Address,
+    #[serde(rename = "Liquidations")]
     liquidations: Address,
+    #[serde(rename = "Uniswap")]
     uniswap: Address,
+    #[serde(rename = "Flash")]
     flashloan: Address,
+    #[serde(rename = "Multicall")]
     multicall: Option<Address>,
 }
 
