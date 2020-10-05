@@ -6,10 +6,9 @@ use crate::{
     bindings::{Liquidations, UniswapV2Pair as Uniswap},
     borrowers::Borrower,
     escalator::GeometricGasPrice,
-    merge,
+    merge, Result,
 };
 
-use anyhow::Result;
 use ethers::{
     core::abi::{self, Tokenize},
     prelude::*,
@@ -19,9 +18,9 @@ use std::{collections::HashMap, fmt, sync::Arc, time::Instant};
 use tracing::{debug, debug_span, error, info, trace};
 
 #[derive(Clone)]
-pub struct Liquidator<P> {
-    liquidations: Liquidations<P, Wallet>,
-    uniswap: Uniswap<P, Wallet>,
+pub struct Liquidator<M> {
+    liquidations: Liquidations<M>,
+    uniswap: Uniswap<M>,
     flashloan: Address,
 
     /// The currently active auctions
@@ -29,7 +28,7 @@ pub struct Liquidator<P> {
 
     /// We use multicall to batch together calls and have reduced stress on
     /// our RPC endpoint
-    multicall: Multicall<P, Wallet>,
+    multicall: Multicall<M>,
 
     /// The minimum profit to be extracted per liquidation
     min_profit: U256,
@@ -69,7 +68,7 @@ impl fmt::Display for TxType {
     }
 }
 
-impl<P: JsonRpcClient> Liquidator<P> {
+impl<M: Middleware> Liquidator<M> {
     /// Constructor
     pub async fn new(
         liquidations: Address,
@@ -77,7 +76,7 @@ impl<P: JsonRpcClient> Liquidator<P> {
         flashloan: Address,
         multicall: Option<Address>,
         min_profit: U256,
-        client: Arc<Client<P, Wallet>>,
+        client: Arc<M>,
         auctions: HashMap<Address, Auction>,
         gas_escalator: GeometricGasPrice,
     ) -> Self {
@@ -101,7 +100,7 @@ impl<P: JsonRpcClient> Liquidator<P> {
 
     /// Checks if any transactions which have been submitted are mined, removes
     /// them if they were successful, otherwise bumps their gas price
-    pub async fn remove_or_bump(&mut self) -> Result<()> {
+    pub async fn remove_or_bump(&mut self) -> Result<(), M> {
         let now = Instant::now();
 
         // Check all the pending liquidations
@@ -113,7 +112,7 @@ impl<P: JsonRpcClient> Liquidator<P> {
         Ok(())
     }
 
-    async fn remove_or_bump_inner(&mut self, now: Instant, tx_type: TxType) -> Result<()> {
+    async fn remove_or_bump_inner(&mut self, now: Instant, tx_type: TxType) -> Result<(), M> {
         let client = self.liquidations.client();
 
         let pending_txs = match tx_type {
@@ -128,7 +127,10 @@ impl<P: JsonRpcClient> Liquidator<P> {
             );
 
             // get the receipt and check inclusion, or bump its gas price
-            let receipt = client.get_transaction_receipt(pending_tx.1).await?;
+            let receipt = client
+                .get_transaction_receipt(pending_tx.1)
+                .await
+                .map_err(ContractError::MiddlewareError)?;
             if let Some(receipt) = receipt {
                 pending_txs.remove(&addr);
                 let status = if receipt.status == Some(1.into()) {
@@ -155,7 +157,8 @@ impl<P: JsonRpcClient> Liquidator<P> {
                 // rebroadcast (TODO: Can we avoid cloning?)
                 replacement_tx.1 = client
                     .send_transaction(replacement_tx.0.clone(), None)
-                    .await?;
+                    .await
+                    .map_err(ContractError::MiddlewareError)?;
 
                 trace!(tx_hash = ?pending_tx.1, new_gas_price = %new_gas_price, user = ?addr, tx_type = %tx_type, "replaced");
             }
@@ -170,7 +173,7 @@ impl<P: JsonRpcClient> Liquidator<P> {
         from_block: U64,
         to_block: U64,
         gas_price: U256,
-    ) -> Result<()> {
+    ) -> Result<(), M> {
         let all_users = {
             let liquidations = self
                 .liquidations
@@ -192,7 +195,7 @@ impl<P: JsonRpcClient> Liquidator<P> {
 
     /// Tries to buy the collateral associated with a user's liquidation auction
     /// via a flashloan funded by Uniswap's DAI/WETH pair.
-    async fn buy(&mut self, user: Address, now: Instant, gas_price: U256) -> Result<()> {
+    async fn buy(&mut self, user: Address, now: Instant, gas_price: U256) -> Result<(), M> {
         // only iterate over users that do not have active auctions
         if let Some(pending_tx) = self.pending_auctions.get(&user) {
             trace!(tx_hash = ?pending_tx.1, user = ?user, "bid not confirmed yet");
@@ -254,7 +257,7 @@ impl<P: JsonRpcClient> Liquidator<P> {
         &mut self,
         borrowers: impl Iterator<Item = (&Address, &Borrower)>,
         gas_price: U256,
-    ) -> Result<()> {
+    ) -> Result<(), M> {
         debug!("checking for undercollateralized positions...");
 
         let now = Instant::now();
@@ -288,7 +291,7 @@ impl<P: JsonRpcClient> Liquidator<P> {
         Ok(())
     }
 
-    async fn get_vault(&mut self, user: Address) -> Result<Auction> {
+    async fn get_vault(&mut self, user: Address) -> Result<Auction, M> {
         let vault = self.liquidations.vaults(user);
         let timestamp = self.liquidations.liquidations(user);
 

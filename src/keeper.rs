@@ -2,9 +2,9 @@ use crate::{
     borrowers::{Borrower, Borrowers},
     escalator::GeometricGasPrice,
     liquidations::{Auction, Liquidator},
+    Result,
 };
 
-use anyhow::Result;
 use ethers::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, io::Write, path::PathBuf, sync::Arc};
@@ -23,19 +23,19 @@ pub struct State {
 
 /// The keeper monitors the chain for both liquidation opportunities and for
 /// participation in auctions using Uniswap as a liquidity source
-pub struct Keeper<P> {
-    client: Arc<Client<P, Wallet>>,
+pub struct Keeper<M> {
+    client: Arc<M>,
     last_block: U64,
 
-    borrowers: Borrowers<P>,
-    liquidator: Liquidator<P>,
+    borrowers: Borrowers<M>,
+    liquidator: Liquidator<M>,
 }
 
-impl<P: JsonRpcClient> Keeper<P> {
+impl<M: Middleware> Keeper<M> {
     /// Instantiates the keeper. `state` should be passed if there is previous
     /// data which should be taken into account from a previous run
     pub async fn new(
-        client: Arc<Client<P, Wallet>>,
+        client: Arc<M>,
         controller: Address,
         liquidations: Address,
         uniswap: Address,
@@ -44,7 +44,7 @@ impl<P: JsonRpcClient> Keeper<P> {
         min_profit: U256,
         gas_escalator: GeometricGasPrice,
         state: Option<State>,
-    ) -> Result<Keeper<P>> {
+    ) -> Result<Keeper<M>, M> {
         let (borrowers, vaults, last_block) = match state {
             Some(state) => (state.borrowers, state.auctions, state.last_block.into()),
             None => (HashMap::new(), HashMap::new(), 0.into()),
@@ -71,18 +71,26 @@ impl<P: JsonRpcClient> Keeper<P> {
         })
     }
 
-    pub async fn run(&mut self, fname: PathBuf, start_block: Option<u64>) -> Result<()> {
+    pub async fn run(&mut self, fname: PathBuf, start_block: Option<u64>) -> Result<(), M> {
         // Create the initial list of borrowers from the start_block, if provided
         if let Some(start_block) = start_block {
             self.last_block = start_block.into();
         }
 
         let watcher = self.client.clone();
-        let mut on_block = watcher.watch_blocks().await?.stream();
+        let mut on_block = watcher
+            .watch_blocks()
+            .await
+            .map_err(ContractError::MiddlewareError)?
+            .stream();
 
         let mut file: Option<std::fs::File> = None;
         while on_block.next().await.is_some() {
-            let block_number = self.client.get_block_number().await?;
+            let block_number = self
+                .client
+                .get_block_number()
+                .await
+                .map_err(ContractError::MiddlewareError)?;
 
             if block_number % 10 == 0.into() {
                 // on each new block we open a new file handler to dump our state.
@@ -116,9 +124,13 @@ impl<P: JsonRpcClient> Keeper<P> {
     }
 
     /// Runs the liquidation business logic for the specified block
-    async fn on_block(&mut self, block_number: U64) -> Result<()> {
+    async fn on_block(&mut self, block_number: U64) -> Result<(), M> {
         // Get the gas price - TODO: Replace with gas price oracle
-        let gas_price = self.client.get_gas_price().await?;
+        let gas_price = self
+            .client
+            .get_gas_price()
+            .await
+            .map_err(ContractError::MiddlewareError)?;
 
         // 1. Check if our transactions have been mined
         self.liquidator.remove_or_bump().await?;

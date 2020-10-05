@@ -66,17 +66,15 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run<P: JsonRpcClient>(opts: Opts, provider: Provider<P>) -> anyhow::Result<()> {
+async fn run<P: JsonRpcClient + 'static>(opts: Opts, provider: Provider<P>) -> anyhow::Result<()> {
     info!("Starting Yield Liquidator.");
-    let wallet: Wallet = std::fs::read_to_string(opts.private_key)?.parse()?;
-    let client = wallet
-        .connect(provider)
-        .interval(Duration::from_millis(opts.interval))
-        // enable the nonce-manager so that we can send multiple transactions in a row
-        // without waiting for them to be included in the mempool
-        .with_nonce_manager();
+    let provider = provider.interval(Duration::from_millis(opts.interval));
+    let wallet: LocalWallet = std::fs::read_to_string(opts.private_key)?.parse()?;
+    let address = wallet.address();
+    let client = Client::new(provider, wallet);
+    let client = NonceManager::new(client, address);
     let client = Arc::new(client);
-    info!("Profits will be sent to {:?}", client.address());
+    info!("Profits will be sent to {:?}", address);
 
     info!("Node: {}", opts.url);
 

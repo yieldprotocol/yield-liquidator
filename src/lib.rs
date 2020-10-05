@@ -21,3 +21,5 @@ pub fn merge<T>(a: Vec<Address>, b: &HashMap<Address, T>) -> Vec<Address> {
     all.dedup();
     all
 }
+
+pub type Result<T, M> = std::result::Result<T, ContractError<M>>;

@@ -2,18 +2,17 @@
 //!
 //! This module is responsible for keeping track of the users that have open
 //! positions and observing their debt healthiness.
-use crate::{bindings::Controller, WETH};
+use crate::{bindings::Controller, Result, WETH};
 
-use anyhow::Result;
 use ethers::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, debug_span};
 
 #[derive(Clone)]
-pub struct Borrowers<P> {
+pub struct Borrowers<M> {
     /// The controller smart contract
-    pub controller: Controller<P, Wallet>,
+    pub controller: Controller<M>,
 
     /// Mapping of the addresses that have taken loans from the system and might
     /// be susceptible to liquidations
@@ -21,7 +20,7 @@ pub struct Borrowers<P> {
 
     /// We use multicall to batch together calls and have reduced stress on
     /// our RPC endpoint
-    multicall: Multicall<P, Wallet>,
+    multicall: Multicall<M>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -44,12 +43,12 @@ pub struct Borrower {
     pub max_borrowing_power: U256,
 }
 
-impl<P: JsonRpcClient> Borrowers<P> {
+impl<M: Middleware> Borrowers<M> {
     /// Constructor
     pub async fn new(
         controller: Address,
         multicall: Option<Address>,
-        client: Arc<Client<P, Wallet>>,
+        client: Arc<M>,
         borrowers: HashMap<Address, Borrower>,
     ) -> Self {
         let multicall = Multicall::new(client.clone(), multicall)
@@ -65,7 +64,7 @@ impl<P: JsonRpcClient> Borrowers<P> {
     /// Gets any new borrowers which may have joined the system since we last
     /// made this call and then proceeds to get the latest account details for
     /// each user
-    pub async fn update_borrowers(&mut self, from_block: U64, to_block: U64) -> Result<()> {
+    pub async fn update_borrowers(&mut self, from_block: U64, to_block: U64) -> Result<(), M> {
         let span = debug_span!("monitoring");
         let _enter = span.enter();
 
@@ -100,7 +99,7 @@ impl<P: JsonRpcClient> Borrowers<P> {
     /// 2. isCollateralized
     /// 3. posted
     /// 4. totalDebtDai
-    pub async fn get_borrower(&mut self, user: Address) -> Result<Borrower> {
+    pub async fn get_borrower(&mut self, user: Address) -> Result<Borrower, M> {
         let power = self.controller.power_of(WETH, user);
         let is_collateralized = self.controller.is_collateralized(WETH, user);
         let posted_collateral = self.controller.posted(WETH, user);
