@@ -76,8 +76,8 @@ async fn run<P: JsonRpcClient + 'static>(opts: Opts, provider: Provider<P>) -> a
     let provider = provider.interval(Duration::from_millis(opts.interval));
     let wallet: LocalWallet = std::fs::read_to_string(opts.private_key)?.parse()?;
     let address = wallet.address();
-    let client = Client::new(provider, wallet);
-    let client = NonceManager::new(client, address);
+    let client = SignerMiddleware::new(provider, wallet);
+    let client = NonceManagerMiddleware::new(client, address);
     let client = Arc::new(client);
     info!("Profits will be sent to {:?}", address);
 

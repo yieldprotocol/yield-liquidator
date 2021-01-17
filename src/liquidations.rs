@@ -155,7 +155,7 @@ impl<M: Middleware> Liquidator<M> {
                 replacement_tx.0.gas_price = Some(new_gas_price);
 
                 // rebroadcast (TODO: Can we avoid cloning?)
-                replacement_tx.1 = client
+                replacement_tx.1 = *client
                     .send_transaction(replacement_tx.0.clone(), None)
                     .await
                     .map_err(ContractError::MiddlewareError)?;
@@ -233,7 +233,9 @@ impl<M: Middleware> Liquidator<M> {
             Ok(hash) => {
                 // record the tx
                 trace!(tx_hash = ?hash, "Submitted buy order");
-                self.pending_auctions.entry(user).or_insert((tx, hash, now));
+                self.pending_auctions
+                    .entry(user)
+                    .or_insert((tx, *hash, now));
             }
             Err(err) => {
                 let err = err.to_string();
@@ -284,7 +286,7 @@ impl<M: Middleware> Liquidator<M> {
                 trace!(tx_hash = ?tx_hash, user = ?user, "Submitted liquidation");
                 self.pending_liquidations
                     .entry(*user)
-                    .or_insert((tx, tx_hash, now));
+                    .or_insert((tx, *tx_hash, now));
             }
         }
 
